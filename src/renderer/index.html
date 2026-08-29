@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self';" />
+    <title>Assistant Rédacteur</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="titlebar">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6.2 3.2h7.4l4.6 4.6v12.2a1.2 1.2 0 0 1-1.2 1.2H6.2A1.2 1.2 0 0 1 5 20V4.4a1.2 1.2 0 0 1 1.2-1.2z" />
+            <path d="M13.4 3.4v4.6h4.6" />
+            <path d="M8.2 12.4h7M8.2 16.1h4.6" />
+          </svg>
+        </div>
+        <div class="brand-text">
+          <div class="name">Assistant Rédacteur</div>
+          <div class="sub" id="status-line"><span class="dot pending"></span>Démarrage…</div>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="btn-barre" class="icon-btn" title="Conversations (⌘L)" aria-label="Conversations">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M4 6.5h16M4 12h16M4 17.5h16" />
+          </svg>
+        </button>
+        <button id="btn-biblio" class="icon-btn" title="Bibliothèque" aria-label="Bibliothèque">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 5.2A1.2 1.2 0 0 1 5.2 4h4.3A2.5 2.5 0 0 1 12 6.5V20a2.2 2.2 0 0 0-2.2-2.2H4z" />
+            <path d="M20 5.2A1.2 1.2 0 0 0 18.8 4h-4.3A2.5 2.5 0 0 0 12 6.5V20a2.2 2.2 0 0 1 2.2-2.2H20z" />
+          </svg>
+        </button>
+        <button id="btn-new" class="icon-btn" title="Nouvelle conversation (⌘N)" aria-label="Nouvelle conversation">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+        </button>
+        <button id="btn-settings" class="icon-btn" title="Réglages" aria-label="Réglages">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <circle cx="12" cy="12" r="3.2" />
+            <path d="M12 2.8v2.4M12 18.8v2.4M21.2 12h-2.4M5.2 12H2.8M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7M18.5 18.5l-1.7-1.7M7.2 7.2L5.5 5.5" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="corps">
+      <aside id="barre" class="barre">
+        <div class="barre-tete">
+          <div class="champ-recherche">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+              <circle cx="11" cy="11" r="6.2" />
+              <path d="M15.6 15.6L20 20" />
+            </svg>
+            <input type="search" id="recherche" placeholder="Rechercher…" autocomplete="off" spellcheck="false" />
+          </div>
+          <button id="btn-new-barre" class="neuve">Nouvelle conversation</button>
+        </div>
+        <div id="liste-conv" class="convs"></div>
+      </aside>
+
+      <div class="colonne">
+    <section id="settings" class="panneau hidden">
+      <label class="row">
+        <span>Modèle</span>
+        <select id="model">
+          <option value="claude-opus-5">Opus 5 — le plus fin</option>
+          <option value="claude-sonnet-5">Sonnet 5 — plus rapide</option>
+          <option value="claude-haiku-4-5">Haiku 4.5 — express</option>
+        </select>
+      </label>
+      <label class="row">
+        <span>Profondeur</span>
+        <select id="profondeur">
+          <option value="bref">Note — ~1 000 mots, 3 à 5 sources</option>
+          <option value="standard">Document — ~2 500 mots, 6 à 10 sources</option>
+          <option value="approfondi">Dossier — ~5 000 mots, 12 sources et +</option>
+        </select>
+      </label>
+      <label class="row">
+        <span>Langue de rédaction</span>
+        <select id="langue">
+          <option value="français">Français</option>
+          <option value="anglais">Anglais</option>
+        </select>
+      </label>
+      <label class="row">
+        <span>Ouvrir le document une fois écrit</span>
+        <input type="checkbox" id="ouvrir-auto" />
+      </label>
+      <p class="note-inline">Changer la profondeur ou la langue repart sur une conversation neuve : ces règles vivent dans les consignes de l'assistant.</p>
+
+      <h4>Bibliothèque</h4>
+      <div id="chemin-biblio" class="chemin"></div>
+      <div class="boutons">
+        <button id="btn-choisir" class="link-btn">Changer de dossier…</button>
+        <button id="btn-ouvrir-biblio" class="link-btn">Ouvrir dans le Finder…</button>
+      </div>
+    </section>
+
+    <section id="biblio" class="panneau hidden">
+      <h4>Documents</h4>
+      <div id="liste-docs" class="docs"></div>
+    </section>
+
+    <main id="scroll">
+      <div id="thread"></div>
+    </main>
+
+    <footer>
+      <div id="composer">
+        <textarea id="input" rows="1" placeholder="Sur quoi te renseigner ? (sujet ou adresse web)" autofocus></textarea>
+        <button id="btn-send" class="send" aria-label="Envoyer">
+          <svg class="ic-send" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 19V5M5 12l7-7 7 7" />
+          </svg>
+          <svg class="ic-stop" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <rect x="6" y="6" width="12" height="12" rx="2.5" />
+          </svg>
+        </button>
+      </div>
+      <div class="hint"><kbd>↩</kbd> envoyer · <kbd>⇧↩</kbd> nouvelle ligne · <kbd>esc</kbd> stop — tu peux écrire pendant qu'il cherche</div>
+    </footer>
+      </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

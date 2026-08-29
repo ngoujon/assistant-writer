@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Le bundle, ses helpers et son exécutable portent un nom ASCII : un accent
+       dans ces chemins fait planter Electron au démarrage (SIGTRAP, sans message).
+       C'est ici que le nom accentué revient, pour le Finder, le Dock et les menus. -->
+  <key>CFBundleDisplayName</key>
+  <string>Assistant Rédacteur</string>
+
+  <!-- La bibliothèque vit dans ~/Documents : sans ces phrases, macOS ne demande
+       pas l'autorisation, il tue l'application au premier accès. -->
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>L'Assistant Rédacteur range les documents qu'il écrit dans votre dossier Documents.</string>
+  <key>NSDownloadsFolderUsageDescription</key>
+  <string>Pour lire un document que vous lui donnez, ou y ranger sa bibliothèque.</string>
+  <key>NSDesktopFolderUsageDescription</key>
+  <string>Pour lire un document que vous lui donnez, ou y ranger sa bibliothèque.</string>
+</dict>
+</plist>

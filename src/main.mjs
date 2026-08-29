@@ -1,0 +1,638 @@
+import { app, BrowserWindow, ipcMain, shell, dialog, Menu, nativeTheme, screen } from 'electron'
+import path from 'node:path'
+import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { setDataRoot, setBibliotheque, bibliothequeParDefaut, P } from './doc/paths.mjs'
+import { AgentSession } from './agent/session.mjs'
+import { PROMPT_VERSION } from './agent/prompt.mjs'
+import {
+  listerDocuments, lireDocument, supprimerDocument, versionsDocument, lireVersion, LISEZ_MOI,
+} from './doc/bibliotheque.mjs'
+import { registre } from './doc/sources.mjs'
+import * as Conv from './doc/conversations.mjs'
+import { tracer, cheminJournal } from './doc/journal.mjs'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+const CONFIG_DEFAUT = {
+  model: 'claude-opus-5',
+  // Longueur et nombre de sources visés. Voir agent/prompt.mjs.
+  profondeur: 'standard',
+  langue: 'français',
+  // Ouvrir le document dans l'app Markdown dès qu'il est écrit.
+  ouvrirAuto: true,
+  bibliotheque: null,
+  barreVisible: true,
+  bounds: null,
+  conversation: null,
+  promptVersion: 0,
+  // Migration : la fenêtre d'avant la barre latérale était trop étroite pour elle.
+  elargieBarre: false,
+}
+
+let config = { ...CONFIG_DEFAUT }
+let configPath = ''
+let win = null
+let session = null
+let quitting = false
+
+/** La conversation ouverte dans la fenêtre. */
+let courante = null
+/** Un tour est en cours : c'est ce qui allume « en cours » dans la liste. */
+let occupe = false
+/** Les règles ont changé : on n'essaie pas de reprendre les fils d'avant. */
+let resumeInterdit = false
+
+const permissionsEnAttente = new Map()
+let seqPermission = 0
+
+// ------------------------------------------------------------------ config
+
+function loadConfig() {
+  configPath = path.join(app.getPath('userData'), 'reglages.json')
+  try {
+    config = { ...CONFIG_DEFAUT, ...JSON.parse(fs.readFileSync(configPath, 'utf8')) }
+  } catch {
+    config = { ...CONFIG_DEFAUT }
+  }
+  const voulue = boundsParDefaut()
+  // La barre latérale a besoin de place : on élargit une fois, sans jamais rétrécir.
+  if (!config.elargieBarre && config.bounds && (config.bounds.width || 0) < voulue.width) {
+    config.bounds = { ...config.bounds, width: voulue.width }
+  }
+  config.elargieBarre = true
+  // Des dimensions enregistrées incomplètes donneraient une fenêtre minuscule.
+  if (config.bounds && !(config.bounds.width > 0 && config.bounds.height > 0)) {
+    config.bounds = {
+      ...config.bounds,
+      width: config.bounds.width > 0 ? config.bounds.width : voulue.width,
+      height: config.bounds.height > 0 ? config.bounds.height : voulue.height,
+    }
+  }
+  saveConfig()
+}
+
+/**
+ * Un tiers de l'écran : assez pour la barre latérale et un fil confortable, sans
+ * occuper la place d'une fenêtre de travail. Plancher à 620 px sur un petit écran.
+ */
+function boundsParDefaut() {
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize
+  return {
+    width: Math.max(620, Math.round(width / 3)),
+    height: Math.round(height * 0.92),
+  }
+}
+
+let saveTimer = null
+function saveConfig() {
+  clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => {
+    try {
+      fs.mkdirSync(path.dirname(configPath), { recursive: true })
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2))
+    } catch {}
+  }, 300)
+}
+
+function ensureBibliotheque() {
+  setBibliotheque(config.bibliotheque || bibliothequeParDefaut())
+  const lisezMoi = path.join(P.bibliotheque(), LISEZ_MOI)
+  if (!fs.existsSync(lisezMoi) && !listerDocuments().length) {
+    fs.writeFileSync(lisezMoi, [
+      '# Ta bibliothèque',
+      '',
+      "Les documents écrits par l'Assistant Rédacteur atterrissent ici, en Markdown,",
+      'un fichier par sujet. Ce sont des fichiers ordinaires : ouvre-les, déplace-les,',
+      'sauvegarde-les avec le reste de tes documents.',
+      '',
+      'Chacun porte un en-tête (titre, sujet, dates, nombre de sources) et se termine par',
+      'la liste des pages réellement consultées, avec leur date de consultation.',
+      '',
+    ].join('\n'))
+  }
+}
+
+// ----------------------------------------------------------------- fenêtre
+
+function createWindow() {
+  const { width, height, x, y } = config.bounds || boundsParDefaut()
+  win = new BrowserWindow({
+    width, height, x, y,
+    minWidth: 420,
+    minHeight: 520,
+    show: false,
+    title: 'Assistant Rédacteur',
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 14, y: 18 },
+    vibrancy: 'sidebar',
+    visualEffectState: 'active',
+    backgroundColor: '#00000000',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+    },
+  })
+
+  win.webContents.on('did-start-loading', () => { rendererPret = false })
+  win.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+  win.once('ready-to-show', () => win.show())
+
+  win.on('close', (e) => {
+    if (!quitting) { e.preventDefault(); win.hide() }
+  })
+  const memoriser = () => {
+    if (!win || win.isDestroyed() || win.isMinimized()) return
+    config.bounds = win.getBounds()
+    saveConfig()
+  }
+  win.on('resize', memoriser)
+  win.on('move', memoriser)
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url)
+    return { action: 'deny' }
+  })
+}
+
+// Le renderer n'écoute qu'après son chargement : on met les événements de
+// démarrage en attente pour ne pas perdre l'état de connexion.
+let rendererPret = false
+const enAttente = []
+
+function emit(evt) {
+  if (!rendererPret) {
+    enAttente.push(evt)
+    if (enAttente.length > 200) enAttente.shift()
+    return
+  }
+  if (win && !win.isDestroyed()) win.webContents.send('agent', evt)
+}
+
+function viderAttente() {
+  rendererPret = true
+  for (const evt of enAttente.splice(0, enAttente.length)) {
+    if (win && !win.isDestroyed()) win.webContents.send('agent', evt)
+  }
+}
+
+// ------------------------------------------------------- mémoire des fils
+//
+// Ce que la fenêtre a affiché est réenregistré au fil de l'eau : le SDK sait
+// reprendre le contexte du modèle, pas ce qu'on avait sous les yeux.
+
+let tamponTexte = ''
+
+function viderTampon() {
+  const t = tamponTexte.trim()
+  tamponTexte = ''
+  if (t && courante) majListe(Conv.ajouter(courante.id, { k: 'texte', texte: t }))
+}
+
+/** La liste des fils, avec le fil qui travaille en ce moment marqué comme tel. */
+function listeConversations(recherche) {
+  return Conv.lister(recherche).map((c) => (
+    c.id === courante?.id && occupe ? { ...c, statut: 'en_cours' } : c
+  ))
+}
+
+function majListe(resume) {
+  if (!resume) return
+  courante = { ...courante, ...resume }
+  diffuserListe()
+}
+
+function diffuserListe() {
+  emit({ k: 'conversations', liste: listeConversations(), courante: courante?.id || null })
+}
+
+function noterUtilisateur(texte) {
+  if (!courante) return
+  viderTampon()
+  majListe(Conv.ajouter(courante.id, { k: 'user', texte }))
+}
+
+/** Un argument d'outil lisible en une ligne, pour rejouer le fil plus tard. */
+function argOutil(input) {
+  if (!input || typeof input !== 'object') return ''
+  for (const k of ['url', 'query', 'titre', 'nom', 'command', 'id', 'pattern', 'file_path']) {
+    if (typeof input[k] === 'string' && input[k]) return input[k].slice(0, 200)
+  }
+  return ''
+}
+
+function noterEvenement(evt) {
+  if (!courante) return
+  switch (evt.k) {
+    case 'text-start':
+      viderTampon()
+      break
+    case 'text-delta':
+      tamponTexte += evt.text
+      break
+    case 'tool-use':
+      viderTampon()
+      majListe(Conv.ajouter(courante.id, { k: 'outil', nom: evt.name, arg: argOutil(evt.input) }))
+      break
+    case 'source':
+      viderTampon()
+      majListe(Conv.ajouter(courante.id, {
+        k: 'source', id: evt.source.id, titre: evt.source.titre, url: evt.source.url,
+      }))
+      break
+    case 'document':
+      viderTampon()
+      majListe(Conv.ajouter(courante.id, {
+        k: 'document',
+        nom: evt.document.nom,
+        titre: evt.document.titre,
+        mots: evt.document.mots,
+        sources: evt.document.sources_citees,
+        version: evt.document.version,
+        remplace: evt.document.remplace,
+      }))
+      break
+    case 'result':
+      viderTampon()
+      majListe(Conv.marquerStatut(courante.id, evt.isError ? 'incomplet' : 'termine'))
+      break
+    case 'interrupted':
+      viderTampon()
+      majListe(Conv.marquerStatut(courante.id, 'interrompu'))
+      break
+    case 'error':
+      viderTampon()
+      Conv.marquerStatut(courante.id, 'incomplet')
+      majListe(Conv.ajouter(courante.id, { k: 'note', texte: evt.message, kind: 'err' }))
+      break
+  }
+}
+
+// --------------------------------------------------------------- permission
+
+function askPermission(req) {
+  return new Promise((resolve) => {
+    const id = `perm-${++seqPermission}`
+    permissionsEnAttente.set(id, resolve)
+    const onAbort = () => {
+      if (permissionsEnAttente.delete(id)) resolve({ behavior: 'deny', message: 'Annulé.' })
+    }
+    req.signal?.addEventListener('abort', onAbort, { once: true })
+
+    emit({
+      k: 'permission',
+      id,
+      toolName: req.toolName,
+      title: req.title,
+      displayName: req.displayName,
+      subtitle: req.subtitle,
+      reason: req.reason,
+      summary: req.summary,
+      hint: req.hint,
+      allowAlways: req.allowAlways !== false,
+      input: req.input,
+    })
+    if (win && !win.isVisible()) win.show()
+  })
+}
+
+function resolvePermission(id, reponse) {
+  const resolve = permissionsEnAttente.get(id)
+  if (!resolve) return
+  permissionsEnAttente.delete(id)
+  resolve(reponse)
+}
+
+function refuserToutes(message) {
+  for (const [id, resolve] of permissionsEnAttente) {
+    permissionsEnAttente.delete(id)
+    resolve({ behavior: 'deny', message })
+  }
+}
+
+// ------------------------------------------------------------ conversations
+
+/**
+ * Ouvre un fil : on reprend le contexte du modèle là où il s'était arrêté, et on
+ * repeint son affichage.
+ *
+ * Relancer la session tue le travail en cours, sans prévenir et sans retour
+ * possible. Donc : on ne relance jamais pour un fil déjà ouvert, et quitter un
+ * fil qui travaille le marque « interrompu » pour pouvoir le reprendre.
+ */
+function ouvrirConversation(id, { neuve = false } = {}) {
+  if (!neuve && id && id === courante?.id) {
+    peindreConversation()
+    return courante
+  }
+
+  if (occupe && courante) {
+    tracer('fil quitté pendant un travail', courante.id)
+    Conv.marquerStatut(courante.id, 'interrompu')
+  }
+  refuserToutes('Changement de conversation.')
+  viderTampon()
+  occupe = false
+  tamponTexte = ''
+
+  const conv = (id && Conv.fil(id)) || null
+  courante = conv || Conv.creer()
+  config.conversation = courante.id
+  saveConfig()
+
+  session?.start({ resume: repriseDe(courante, neuve) })
+  peindreConversation(conv?.evenements || [])
+  return courante
+}
+
+function repriseDe(conv, neuve) {
+  return !neuve && !resumeInterdit && conv?.sessionId ? conv.sessionId : undefined
+}
+
+function peindreConversation(evenements) {
+  emit({
+    k: 'conversation',
+    id: courante.id,
+    titre: courante.titre || null,
+    statut: courante.statut || null,
+    evenements: evenements || Conv.fil(courante.id)?.evenements || [],
+  })
+  diffuserListe()
+}
+
+/**
+ * Reprend un fil laissé en plan : on rebranche la session sur son contexte et on
+ * demande la suite. C'est la sortie de secours quand un tour s'arrête tout seul.
+ */
+function reprendreConversation(id) {
+  const cible = id || courante?.id
+  if (!cible) return null
+  if (cible !== courante?.id) ouvrirConversation(cible)
+  if (!session?.running) session?.start({ resume: repriseDe(Conv.fil(cible), false) })
+  const consigne = "Reprends exactement où tu t'étais arrêté, sans refaire ce qui est déjà fait. "
+    + "Si tu as déjà de quoi écrire quelque chose d'utile, publie d'abord une version du document, "
+    + "puis continue à l'enrichir."
+  noterUtilisateur(consigne)
+  session.send(consigne)
+  return cible
+}
+
+// ---------------------------------------------------------------------- IPC
+
+function ouvrirFichier(chemin) {
+  if (chemin && fs.existsSync(chemin)) shell.openPath(chemin)
+}
+
+function wireIpc() {
+  ipcMain.handle('app:init', () => {
+    setImmediate(viderAttente)
+    return {
+      config: {
+        model: config.model,
+        profondeur: config.profondeur,
+        langue: config.langue,
+        ouvrirAuto: config.ouvrirAuto,
+        barreVisible: config.barreVisible !== false,
+      },
+      bibliotheque: P.bibliotheque(),
+      documents: listerDocuments(),
+      conversations: listeConversations(),
+      version: app.getVersion(),
+    }
+  })
+
+  ipcMain.on('chat:send', (_e, text) => {
+    if (!text?.trim()) return
+    noterUtilisateur(text.trim())
+    session.send(text)
+  })
+  ipcMain.on('chat:interrupt', () => session.interrupt())
+  ipcMain.on('chat:config', (_e, patch) => {
+    Object.assign(config, patch)
+    saveConfig()
+    if (patch.model) session.setModel(patch.model)
+    // Profondeur et langue vivent dans le prompt système : il faut une session neuve.
+    if (patch.profondeur || patch.langue) {
+      emit({ k: 'note', text: 'Nouvelles règles de rédaction : la suite repart sur un contexte neuf.' })
+      session.start({})
+    }
+  })
+  ipcMain.on('perm:reply', (_e, { id, answer }) => resolvePermission(id, answer))
+
+  ipcMain.handle('conv:list', (_e, recherche) => listeConversations(recherche))
+  ipcMain.handle('conv:new', () => ouvrirConversation(null, { neuve: true }).id)
+  ipcMain.handle('conv:open', (_e, id) => ouvrirConversation(id).id)
+  ipcMain.handle('conv:resume', (_e, id) => reprendreConversation(id))
+  ipcMain.handle('conv:rename', (_e, { id, titre }) => {
+    const r = Conv.renommer(id, titre)
+    if (r && courante?.id === id) courante = { ...courante, ...r }
+    return listeConversations()
+  })
+  ipcMain.handle('conv:delete', (_e, id) => {
+    Conv.supprimer(id)
+    if (courante?.id === id) {
+      const suivante = Conv.lister()[0]
+      ouvrirConversation(suivante?.id || null, { neuve: !suivante })
+    }
+    return listeConversations()
+  })
+
+  ipcMain.handle('docs:list', () => listerDocuments())
+  ipcMain.handle('docs:versions', (_e, nom) => {
+    try { return versionsDocument(nom) } catch { return [] }
+  })
+  ipcMain.on('docs:open-version', (_e, { nom, numero }) => {
+    try { ouvrirFichier(lireVersion(nom, numero).chemin) } catch {}
+  })
+
+  // Exporter, c'est sortir une copie de la bibliothèque : l'original ne bouge pas.
+  ipcMain.handle('docs:export', async (_e, { nom, numero } = {}) => {
+    try {
+      const doc = lireDocument(nom)
+      const source = numero ? lireVersion(nom, numero).chemin : doc.chemin
+      const base = doc.nom.replace(/\.md$/, '')
+      const { canceled, filePath } = await dialog.showSaveDialog(win, {
+        title: 'Exporter le document',
+        defaultPath: path.join(app.getPath('downloads'), numero ? `${base}-v${numero}.md` : `${base}.md`),
+        filters: [{ name: 'Markdown', extensions: ['md'] }],
+      })
+      if (canceled || !filePath) return { annule: true }
+      fs.copyFileSync(source, filePath)
+      shell.showItemInFolder(filePath)
+      return { chemin: filePath }
+    } catch (err) {
+      return { erreur: String(err?.message || err) }
+    }
+  })
+  ipcMain.handle('docs:sources', () => registre())
+  ipcMain.on('docs:open', (_e, nom) => {
+    try { ouvrirFichier(lireDocument(nom).chemin) } catch {}
+  })
+  ipcMain.on('docs:reveal', (_e, nom) => {
+    try { shell.showItemInFolder(lireDocument(nom).chemin) } catch {}
+  })
+  ipcMain.handle('docs:delete', async (_e, nom) => {
+    try {
+      const doc = lireDocument(nom)
+      const { response } = await dialog.showMessageBox(win, {
+        type: 'warning',
+        buttons: ['Supprimer', 'Annuler'],
+        defaultId: 1,
+        cancelId: 1,
+        message: `Supprimer « ${doc.titre} » ?`,
+        detail: `${doc.nom} — ${doc.mots} mots. Le fichier part à la corbeille.`,
+      })
+      if (response !== 0) return listerDocuments()
+      await shell.trashItem(doc.chemin).catch(() => supprimerDocument(nom))
+    } catch {}
+    const docs = listerDocuments()
+    emit({ k: 'documents', documents: docs })
+    return docs
+  })
+
+  ipcMain.handle('app:choisir-bibliotheque', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: 'Où ranger les documents ?',
+      properties: ['openDirectory', 'createDirectory'],
+      defaultPath: P.bibliotheque(),
+    })
+    if (canceled || !filePaths?.[0]) return { bibliotheque: P.bibliotheque(), documents: listerDocuments() }
+    config.bibliotheque = filePaths[0]
+    saveConfig()
+    setBibliotheque(filePaths[0])
+    emit({ k: 'note', text: 'Bibliothèque déplacée : la suite repart sur un contexte neuf.' })
+    session?.start({})
+    return { bibliotheque: P.bibliotheque(), documents: listerDocuments() }
+  })
+
+  ipcMain.on('app:open-bibliotheque', () => shell.openPath(P.bibliotheque()))
+  ipcMain.on('app:open-external', (_e, url) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url)
+  })
+}
+
+function buildMenu() {
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: 'Assistant Rédacteur',
+      submenu: [
+        { role: 'about', label: "À propos de l'Assistant Rédacteur" },
+        { type: 'separator' },
+        { role: 'hide', label: 'Masquer' },
+        { role: 'hideOthers', label: 'Masquer les autres' },
+        { type: 'separator' },
+        { role: 'quit', label: 'Quitter' },
+      ],
+    },
+    {
+      label: 'Conversation',
+      submenu: [
+        {
+          label: 'Nouvelle conversation',
+          accelerator: 'CmdOrCtrl+N',
+          click: () => ouvrirConversation(null, { neuve: true }),
+        },
+        {
+          label: 'Afficher la liste des conversations',
+          accelerator: 'CmdOrCtrl+L',
+          click: () => emit({ k: 'basculer-barre' }),
+        },
+        // Pas d'accélérateur « Esc » : la touche est traitée dans l'interface, où
+        // elle refuse d'abord une demande de validation en attente.
+        { label: 'Interrompre', accelerator: 'CmdOrCtrl+.', click: () => session.interrupt() },
+        { type: 'separator' },
+        { label: 'Ouvrir la bibliothèque', accelerator: 'CmdOrCtrl+Shift+O', click: () => shell.openPath(P.bibliotheque()) },
+        { label: 'Ouvrir le journal de bord', click: () => shell.openPath(cheminJournal()) },
+      ],
+    },
+    { role: 'editMenu', label: 'Édition' },
+    {
+      label: 'Fenêtre',
+      submenu: [
+        { role: 'minimize', label: 'Réduire' },
+        { role: 'close', label: 'Fermer' },
+        { type: 'separator' },
+        { role: 'toggleDevTools', label: 'Outils de développement' },
+      ],
+    },
+  ]))
+}
+
+// -------------------------------------------------------------- cycle de vie
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => { if (win) { win.show(); win.focus() } })
+
+  app.whenReady().then(() => {
+    nativeTheme.themeSource = 'system'
+    setDataRoot(app.getPath('userData'))
+    loadConfig()
+    tracer('--- démarrage', app.getVersion(), '| données', app.getPath('userData'))
+    createWindow()
+    buildMenu()
+    wireIpc()
+
+    session = new AgentSession({
+      emit: (evt) => {
+        if (evt.k === 'ready' || evt.k === 'error' || evt.k === 'status') tracer('agent', evt.k, evt)
+        if (evt.k === 'status' && evt.state !== 'connecting') {
+          const desormais = evt.state === 'thinking'
+          if (desormais !== occupe) { occupe = desormais; diffuserListe() }
+        }
+        if (evt.k === 'ready' && evt.sessionId && courante) {
+          Conv.memoriserSession(courante.id, evt.sessionId)
+        }
+        // Le modèle a nommé le fil : on ne recouvre pas un titre posé à la main.
+        if (evt.k === 'titre' && courante) majListe(Conv.renommer(courante.id, evt.titre, { manuel: false }))
+        // Un document vient d'être écrit : la bibliothèque du panneau suit.
+        if (evt.k === 'document') emit({ k: 'documents', documents: listerDocuments() })
+        noterEvenement(evt)
+        emit(evt)
+      },
+      askPermission,
+      getConfig: () => config,
+      ouvrirFichier,
+    })
+
+    process.on('unhandledRejection', (err) => {
+      emit({ k: 'error', message: `Agent indisponible : ${String(err?.message || err)}` })
+      emit({ k: 'status', state: 'idle' })
+    })
+
+    // La bibliothèque et l'agent démarrent une fois la fenêtre à l'écran : lire un
+    // dossier peut demander une autorisation à macOS, qui fige le processus le
+    // temps de la réponse — sans fenêtre, l'app paraîtrait plantée.
+    win.once('ready-to-show', () => {
+      tracer('fenêtre affichée')
+      try {
+        ensureBibliotheque()
+        emit({ k: 'documents', documents: listerDocuments() })
+      } catch {}
+
+      resumeInterdit = config.promptVersion !== PROMPT_VERSION
+      if (resumeInterdit) {
+        config.promptVersion = PROMPT_VERSION
+        saveConfig()
+      }
+      ouvrirConversation(config.conversation)
+      tracer('conversation ouverte', courante?.id, '| bibliothèque', P.bibliotheque())
+    })
+
+    app.on('activate', () => {
+      if (win) { win.show(); win.focus() } else createWindow()
+    })
+  })
+
+  app.on('before-quit', () => {
+    quitting = true
+    refuserToutes("Fermeture de l'application.")
+    viderTampon()
+    session?.stop()
+  })
+
+  app.on('window-all-closed', () => { /* l'app reste dans le Dock */ })
+}
