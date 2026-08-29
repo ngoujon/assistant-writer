@@ -161,8 +161,25 @@ et chaque republication crée une **nouvelle version**.
 - **Exporter…** ouvre l'enregistreur macOS et dépose une copie où tu veux
   (Téléchargements par défaut). L'original ne bouge pas de la bibliothèque.
 
-La seule action qui demande encore une confirmation est la **suppression** d'un
-document — elle emporte tout son historique.
+## Il travaille seul
+
+Par défaut, l'assistant **ne demande rien**. Il cherche, lit, écrit, republie et
+rend compte à la fin — pas de « veux-tu que je continue ? » au milieu d'une
+recherche. Il ne pose une question que si la demande est réellement ambiguë, et
+alors avant de partir, pas après.
+
+Ce que ça ne change pas :
+
+- **Les garde-fous de rédaction restent** : ce sont des règles, pas des permissions.
+  Un document citant une adresse non lue est refusé, en autonomie comme ailleurs.
+- **Tout reste visible** : chaque appel d'outil apparaît dans le fil, dépliable, et
+  le journal de bord en garde la trace (`Conversation ▸ Ouvrir le journal de bord`).
+- **Rien n'est irréversible** : republier archive au lieu d'écraser, et un document
+  supprimé part à la **corbeille du Mac**, pas au néant.
+
+Le réglage **Autonomie** (⚙) revient au mode `prudent` : une carte de validation
+s'ouvre alors avant une commande shell, une écriture hors bibliothèque ou un
+effacement. Le changer repart sur une conversation neuve.
 
 ## Les documents
 
@@ -230,6 +247,7 @@ se rangent les trous, les chiffres périmés et les contradictions non tranchée
 | Réglage | Effet |
 |---|---|
 | **Modèle** | Opus 5 par défaut. Sonnet 5 va plus vite, Haiku 4.5 est expéditif. |
+| **Autonomie** | `Il agit seul` (défaut) · `Me demander avant les actions sensibles` |
 | **Profondeur** | `Note` ~1 000 mots / 3-5 sources · `Document` ~2 500 mots / 6-10 · `Dossier` ~5 000 mots / 12+ |
 | **Langue** | français ou anglais |
 | **Ouvrir une fois écrit** | ouvre le `.md` dans ton éditeur dès qu'il est prêt |
@@ -279,7 +297,7 @@ de 30 secondes sans réponse, elle le dit aussi dans le fil.
 
 ```bash
 npm start          # lance l'app depuis les sources
-npm test           # extraction HTML, garde-fous, bibliothèque, validations, conversations
+npm test           # extraction, garde-fous, bibliothèque, outils, conversations, sessions, autonomie
 npm run selftest   # vraie session agent : consulte une page et écrit un document
 npm run charge     # demande lourde menée jusqu'au bout, avec relance automatique
 npx electron scripts/apercu.mjs   # rejoue une conversation type et capture l'interface

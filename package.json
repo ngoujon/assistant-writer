@@ -12,7 +12,7 @@
     "icon": "bash scripts/make-icon.sh",
     "build": "bash scripts/build-app.sh",
     "install-app": "bash scripts/install-app.sh",
-    "test": "node scripts/test-extraction.mjs && node scripts/test-gardes.mjs && node scripts/test-bibliotheque.mjs && node scripts/test-outils.mjs && node scripts/test-conversations.mjs && node scripts/test-pool.mjs",
+    "test": "node scripts/test-extraction.mjs && node scripts/test-gardes.mjs && node scripts/test-bibliotheque.mjs && node scripts/test-outils.mjs && node scripts/test-conversations.mjs && node scripts/test-pool.mjs && node scripts/test-autonomie.mjs",
     "selftest": "node scripts/selftest.mjs",
     "charge": "node scripts/test-charge.mjs"
   },

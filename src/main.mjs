@@ -20,6 +20,10 @@ const CONFIG_DEFAUT = {
   // Longueur et nombre de sources visés. Voir agent/prompt.mjs.
   profondeur: 'standard',
   langue: 'français',
+  // « auto » : l'assistant mène son travail seul, sans rien faire valider.
+  // « prudent » : une carte s'ouvre avant ce qui sort de la bibliothèque et
+  // avant un effacement.
+  autonomie: 'auto',
   // Ouvrir le document dans l'app Markdown dès qu'il est écrit. Éteint : les
   // documents s'ouvrent depuis le panneau de droite, quand on le décide.
   ouvrirAuto: false,
@@ -467,6 +471,7 @@ function wireIpc() {
         model: config.model,
         profondeur: config.profondeur,
         langue: config.langue,
+        autonomie: config.autonomie || 'auto',
         ouvrirAuto: config.ouvrirAuto,
         barreVisible: config.barreVisible !== false,
         docsVisible: config.docsVisible !== false,
@@ -492,7 +497,7 @@ function wireIpc() {
     saveConfig()
     if (patch.model) pool.setModel(patch.model)
     // Profondeur et langue vivent dans le prompt système : les sessions repartent.
-    if (patch.profondeur || patch.langue) {
+    if (patch.profondeur || patch.langue || patch.autonomie) {
       emit({ k: 'note', text: 'Nouvelles règles de rédaction : la suite repart sur un contexte neuf.' })
       pool.toutArreter()
       diffuserListe()
@@ -677,6 +682,9 @@ if (!app.requestSingleInstanceLock()) {
         askPermission: (req) => askPermission({ ...req, convId }),
         getConfig: () => config,
         ouvrirFichier,
+        envoyerCorbeille: async (chemin) => {
+          try { await shell.trashItem(chemin); return true } catch { return false }
+        },
       }),
       repriseDe,
       surEtat: () => diffuserListe(),

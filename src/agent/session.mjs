@@ -73,11 +73,12 @@ function fileEntree() {
 }
 
 export class AgentSession {
-  constructor({ emit, askPermission, getConfig, ouvrirFichier }) {
+  constructor({ emit, askPermission, getConfig, ouvrirFichier, envoyerCorbeille }) {
     this.emit = emit
     this.askPermission = askPermission
     this.getConfig = getConfig
     this.ouvrirFichier = ouvrirFichier || (() => {})
+    this.envoyerCorbeille = envoyerCorbeille || (async () => false)
     this.q = null
     this.queue = null
     this.abort = null
@@ -125,6 +126,7 @@ export class AgentSession {
           signaler: (evt) => this.emit(evt),
           ouvrir: (chemin) => this.ouvrirFichier(chemin),
           titrer: (titre) => this.emit({ k: 'titre', titre }),
+          corbeille: (chemin) => this.envoyerCorbeille(chemin),
           ouvrirAuto: () => this.getConfig()?.ouvrirAuto !== false,
           modele: () => this.getConfig()?.model,
         }),
@@ -364,6 +366,10 @@ export class AgentSession {
    * @returns {Promise<boolean>}
    */
   async confirmerAction(demande) {
+    if (this.autonome()) {
+      tracer('autonomie — action menée sans demander :', demande.outil, demande.titre)
+      return true
+    }
     const reponse = await this.askPermission({
       toolName: demande.outil,
       input: demande.entree,
@@ -376,11 +382,29 @@ export class AgentSession {
     return reponse?.behavior === 'allow'
   }
 
+  /**
+   * L'assistant travaille-t-il seul ? Réglable dans la fenêtre ; autonome par
+   * défaut, parce qu'une recherche qui s'arrête pour poser une question à
+   * laquelle Nicolas a déjà répondu en formulant sa demande ne sert à rien.
+   *
+   * Ce réglage ne touche qu'aux validations. Les garde-fous de rédaction — on ne
+   * cite que ce qu'on a lu — sont des règles, pas des permissions : ils
+   * s'appliquent dans les deux modes.
+   */
+  autonome() {
+    return (this.getConfig()?.autonomie || 'auto') === 'auto'
+  }
+
   async handlePermission(toolName, input, opts) {
     // Outils de rédaction : la décision appartient à l'outil, qui la prend en
     // connaissance de cause. Redemander ici ferait valider deux fois la même action.
     if (toolName.startsWith(PREFIXE)) return { behavior: 'allow', updatedInput: input }
     if (BUILTIN_SUR.has(toolName)) return { behavior: 'allow', updatedInput: input }
+
+    if (this.autonome()) {
+      tracer('autonomie — outil autorisé sans demander :', toolName, argLisible(input))
+      return { behavior: 'allow', updatedInput: input }
+    }
 
     const summary = resumerPermission(toolName, input)
     const reponse = await this.askPermission({
@@ -422,6 +446,15 @@ function raisonArret(msg) {
   return brut
     ? `Le tour s'est arrêté avant la fin : ${brut}`
     : "Le tour s'est arrêté avant la fin, sans raison précisée."
+}
+
+/** Un aperçu d'entrée d'outil pour le journal : une ligne, pas un déversement. */
+function argLisible(input) {
+  if (!input || typeof input !== 'object') return ''
+  for (const cle of ['command', 'file_path', 'nom', 'url', 'titre']) {
+    if (typeof input[cle] === 'string' && input[cle]) return input[cle].slice(0, 160)
+  }
+  return ''
 }
 
 function textOf(contenu) {

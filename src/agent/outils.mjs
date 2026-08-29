@@ -37,6 +37,9 @@ export function serveurRedacteur(contexte = {}) {
   const signaler = contexte.signaler || (() => {})
   const ouvrir = contexte.ouvrir || (() => false)
   const titrer = contexte.titrer || (() => {})
+  // Supprimer envoie à la corbeille : puisque l'assistant décide seul, ce qu'il
+  // décide doit rester rattrapable.
+  const corbeille = contexte.corbeille || (async () => false)
   const modele = contexte.modele || (() => null)
 
   async function valider(demande) {
@@ -221,7 +224,7 @@ export function serveurRedacteur(contexte = {}) {
 
     tool(
       'supprimer_document',
-      'Retire un document de la bibliothèque. Irréversible.',
+      'Retire un document de la bibliothèque. Il part à la corbeille du Mac, avec son historique.',
       { nom: z.string() },
       sur(async ({ nom }) => {
         const doc = lireDocument(nom)
@@ -230,11 +233,19 @@ export function serveurRedacteur(contexte = {}) {
           entree: { nom },
           titre: `Supprimer « ${doc.titre} » ?`,
           lignes: [`${doc.nom}\n${doc.mots} mots, ${doc.sources} source(s), ${doc.versions + 1} version(s)`],
-          indice: 'Le fichier et tout son historique sont effacés du disque.',
+          indice: 'Le document et son historique partent à la corbeille.',
           danger: true,
           refus: 'Refusé : le document est toujours là.',
         })
-        return { supprime: supprimerDocument(nom) }
+        const aCorbeille = await corbeille(doc.chemin)
+        if (!aCorbeille) supprimerDocument(nom)
+        return {
+          supprime: doc.nom,
+          corbeille: aCorbeille,
+          note: aCorbeille
+            ? 'Le document est dans la corbeille du Mac : Nicolas peut le récupérer.'
+            : 'Le document a été effacé du disque.',
+        }
       }),
     ),
   ]

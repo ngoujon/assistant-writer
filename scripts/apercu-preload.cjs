@@ -22,7 +22,7 @@ const CONVERSATIONS = [
 
 contextBridge.exposeInMainWorld('redacteur', {
   init: async () => ({
-    config: { model: 'claude-opus-5', profondeur: 'standard', langue: 'français', ouvrirAuto: false, barreVisible: true, docsVisible: true, largeurBarre: null, largeurDocs: null, porteeDocs: 'conversation' },
+    config: { model: 'claude-opus-5', profondeur: 'standard', langue: 'français', autonomie: 'auto', ouvrirAuto: false, barreVisible: true, docsVisible: true, largeurBarre: null, largeurDocs: null, porteeDocs: 'conversation' },
     bibliotheque: '/Users/demo/Assistant Rédacteur',
     documents: DOCUMENTS,
     totalDocuments: DOCUMENTS.length + 3,

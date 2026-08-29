@@ -10,6 +10,7 @@ const panneauReglages = document.getElementById('settings')
 const modelSelect = document.getElementById('model')
 const profondeurSelect = document.getElementById('profondeur')
 const langueSelect = document.getElementById('langue')
+const autonomieSelect = document.getElementById('autonomie')
 const ouvrirAuto = document.getElementById('ouvrir-auto')
 const listeDocs = document.getElementById('liste-docs')
 const cheminBiblio = document.getElementById('chemin-biblio')
@@ -706,6 +707,7 @@ document.getElementById('btn-choisir').addEventListener('click', async () => {
 modelSelect.addEventListener('change', () => api.setConfig({ model: modelSelect.value }))
 profondeurSelect.addEventListener('change', () => api.setConfig({ profondeur: profondeurSelect.value }))
 langueSelect.addEventListener('change', () => api.setConfig({ langue: langueSelect.value }))
+autonomieSelect.addEventListener('change', () => api.setConfig({ autonomie: autonomieSelect.value }))
 ouvrirAuto.addEventListener('change', () => api.setConfig({ ouvrirAuto: ouvrirAuto.checked }))
 
 document.addEventListener('click', (e) => {
@@ -1005,6 +1007,7 @@ const state = await api.init()
 modelSelect.value = state.config.model
 profondeurSelect.value = state.config.profondeur || 'standard'
 langueSelect.value = state.config.langue || 'français'
+autonomieSelect.value = state.config.autonomie || 'auto'
 ouvrirAuto.checked = state.config.ouvrirAuto !== false
 bibliotheque = state.bibliotheque
 cheminBiblio.textContent = bibliotheque
