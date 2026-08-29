@@ -644,7 +644,7 @@ body.busy.peut-envoyer .send .ic-stop { display: none; }
 }
 
 .colonne {
-  flex: 1 1 auto;
+  flex: 1 1 33.3333%;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -652,8 +652,11 @@ body.busy.peut-envoyer .send .ic-stop { display: none; }
 }
 
 .barre {
-  flex: 0 0 234px;
-  width: 234px;
+  /* Trois colonnes égales : conversations, fil, documents. La base en pourcentage
+     inclut marges intérieures et bordures (border-box) ; une base à 0 les aurait
+     ajoutées par-dessus, et les colonnes à rembourrage seraient plus larges. */
+  flex: 1 1 33.3333%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -668,7 +671,7 @@ body.busy.peut-envoyer .send .ic-stop { display: none; }
 }
 /* Repliée : elle disparaît sans laisser de trou ni de bordure orpheline. */
 body.barre-cachee .barre {
-  flex-basis: 0;
+  flex: 0 0 0;
   width: 0;
   padding-left: 0;
   padding-right: 0;
@@ -872,8 +875,8 @@ body.barre-cachee .barre {
 /* ======================================================= colonne des documents */
 
 .docs-barre {
-  flex: 0 0 252px;
-  width: 252px;
+  flex: 1 1 33.3333%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -885,7 +888,7 @@ body.barre-cachee .barre {
   transition: flex-basis 0.18s ease, width 0.18s ease, opacity 0.14s ease;
 }
 body.docs-cachee .docs-barre {
-  flex-basis: 0;
+  flex: 0 0 0;
   width: 0;
   padding-left: 0;
   padding-right: 0;
@@ -992,4 +995,34 @@ body.docs-cachee .docs-barre {
   font-size: 11.5px;
   padding: 0;
   text-decoration: underline;
+}
+
+/* --------------------------------------- actions d'un document, dites en toutes lettres */
+
+.doc-fiche .actions-doc { display: flex; gap: 5px; flex-wrap: wrap; }
+.doc-fiche .actions-doc button { flex: 1 1 auto; }
+.doc-fiche .liens-doc {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.doc-fiche .lien {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.doc-fiche .lien:hover { color: var(--accent); }
+.doc-fiche .lien.danger:hover { color: var(--danger); }
+.docs-tete .mini {
+  font-size: 10.5px;
+  text-transform: none;
+  letter-spacing: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }

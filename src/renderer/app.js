@@ -393,14 +393,14 @@ async function remplirVersions(hote, nom) {
   hote.replaceChildren()
   for (const v of versions) {
     const ligne = el('div', `vligne${v.courante ? ' courante' : ''}`)
-    ligne.appendChild(el('span', 'vn', `v${v.numero}`))
+    ligne.appendChild(el('span', 'vn', v.courante ? `v${v.numero} · en place` : `v${v.numero}`))
     const meta = el('span', 'vd', `${v.mots.toLocaleString('fr-FR')} mots`)
     meta.title = `${v.date} · ${v.sources} source${v.sources > 1 ? 's' : ''}`
     ligne.appendChild(meta)
     const ouvrir = el('button', null, 'Ouvrir')
     ouvrir.addEventListener('click', () => (v.courante ? api.docs.open(nom) : api.docs.openVersion(nom, v.numero)))
-    const exporter = el('button', null, '↧')
-    exporter.title = 'Exporter cette version'
+    const exporter = el('button', null, 'Exporter')
+    exporter.title = 'Enregistrer une copie de cette version'
     exporter.addEventListener('click', () => api.docs.export(nom, v.courante ? undefined : v.numero))
     ligne.append(ouvrir, exporter)
     hote.appendChild(ligne)
@@ -413,41 +413,46 @@ function ficheDocument(d) {
   fiche.appendChild(el('div', 't', d.titre))
 
   const meta = el('div', 'm')
-  if (d.version > 1) meta.appendChild(el('span', 'v', `v${d.version}`))
+  if (d.version > 1) meta.appendChild(el('span', 'v', `version ${d.version}`))
   meta.appendChild(el('span', null, d.mis_a_jour_le))
   meta.appendChild(el('span', null, `${d.mots.toLocaleString('fr-FR')} mots`))
   meta.appendChild(el('span', null, `${d.sources} source${d.sources > 1 ? 's' : ''}`))
   fiche.appendChild(meta)
 
+  // Des mots, pas des symboles : on doit savoir ce qu'on clique sans deviner.
   const actions = el('div', 'actions-doc')
   const ouvrir = el('button', 'primary', 'Ouvrir')
+  ouvrir.title = `Ouvrir ${d.nom} dans ton éditeur Markdown`
   ouvrir.addEventListener('click', () => api.docs.open(d.nom))
-  const exporter = el('button', 'icone', '↧')
-  exporter.title = 'Exporter une copie…'
+  const exporter = el('button', null, 'Exporter…')
+  exporter.title = 'Enregistrer une copie ailleurs'
   exporter.addEventListener('click', () => api.docs.export(d.nom))
-  const finder = el('button', 'icone', '⤴')
-  finder.title = 'Révéler dans le Finder'
+  actions.append(ouvrir, exporter)
+  fiche.appendChild(actions)
+
+  const liens = el('div', 'liens-doc')
+  const finder = el('button', 'lien', 'Dans le Finder')
   finder.addEventListener('click', () => api.docs.reveal(d.nom))
-  const sup = el('button', 'icone', '×')
-  sup.title = 'Supprimer'
+  const sup = el('button', 'lien danger', 'Supprimer')
   sup.addEventListener('click', async () => {
     documents = await api.docs.remove(d.nom)
     renderDocuments()
   })
-  actions.append(ouvrir, exporter, finder, sup)
+  liens.append(finder, sup)
 
   if (d.version > 1) {
     const vlist = el('div', 'vlist hidden')
-    const plier = el('button', 'plier', `${d.version} versions ▾`)
+    const plier = el('button', 'lien plier', `${d.version} versions ▾`)
+    plier.title = 'Voir les versions précédentes'
     plier.addEventListener('click', () => {
       const ouverte = !vlist.classList.toggle('hidden')
       plier.textContent = `${d.version} versions ${ouverte ? '▴' : '▾'}`
       if (ouverte && !vlist.childElementCount) remplirVersions(vlist, d.nom)
     })
-    actions.appendChild(plier)
-    fiche.append(actions, vlist)
+    liens.appendChild(plier)
+    fiche.append(liens, vlist)
   } else {
-    fiche.appendChild(actions)
+    fiche.appendChild(liens)
   }
   return fiche
 }

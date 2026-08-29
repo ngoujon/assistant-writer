@@ -30,6 +30,7 @@ Un clic l'ouvre, la croix la masque (elle reste dans le Dock), `⌘Q` la quitte.
 | `⌘N` | nouvelle conversation |
 | `⌘L` | afficher / replier la liste des conversations |
 | `⌘D` | afficher / replier la colonne des documents |
+| `⌘0` | ramener la fenêtre à un tiers de l'écran |
 | `⌘⇧O` | ouvrir la bibliothèque dans le Finder |
 
 ## Plusieurs sujets en parallèle
@@ -118,18 +119,23 @@ Le reste — recouper deux chiffres contradictoires, préférer une source prima
 signaler une donnée trop vieille — relève des consignes (`src/agent/prompt.mjs`), pas
 du code. Les garde-fous couvrent ce qui est vérifiable mécaniquement.
 
-## Trois colonnes
+## Trois colonnes, trois tiers
 
-| Colonne | Contenu |
+La fenêtre fait **un tiers de l'écran** et se partage en **trois colonnes égales**.
+`⌘0` la remet à cette largeur si tu l'as bougée.
+
+| Colonne (un tiers chacune) | Contenu |
 |---|---|
 | **Gauche** (`⌘L`) | les conversations, avec recherche dans tout le contenu |
 | **Centre** | le fil : ce que tu demandes, ce qu'il lit, ce qu'il publie |
 | **Droite** (`⌘D`) | les **documents**, du plus récent au plus ancien, avec leurs versions |
 
+Replier une colonne latérale rend sa place aux deux autres.
+
 Le document ne s'ouvre plus tout seul quand il est écrit. Il apparaît dans la colonne
-de droite avec un bouton **Ouvrir** ; à côté, **↧** exporte une copie, **⤴** le montre
-dans le Finder, **×** le supprime. Un document à plusieurs versions se déplie :
-chacune, **la plus récente en tête**, s'ouvre et s'exporte séparément.
+de droite avec, en toutes lettres : **Ouvrir**, **Exporter…**, puis **Dans le Finder**,
+**Supprimer**, et **« 3 versions ▾ »** qui déplie l'historique — **la plus récente en
+tête**, chacune avec son propre *Ouvrir* et son *Exporter*.
 
 Dans le fil, la carte du document ne fait plus qu'annoncer ce qui vient d'être publié
 et renvoyer vers la colonne.

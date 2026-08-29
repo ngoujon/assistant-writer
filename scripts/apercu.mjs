@@ -47,7 +47,7 @@ setTimeout(() => {
 app.whenReady().then(async () => {
   if (process.env.THEME) nativeTheme.themeSource = process.env.THEME
   const win = new BrowserWindow({
-    width: 980, height: 840, show: false,
+    width: 840, height: 840, show: false,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 14, y: 18 },
     backgroundColor: process.env.THEME === 'dark' ? '#16181e' : '#f8fafd',
@@ -89,7 +89,16 @@ app.whenReady().then(async () => {
     "!document.querySelector('.doc-carte .btns')",
   )
   const ficheOuvrir = await win.webContents.executeJavaScript(
-    "[...document.querySelectorAll('.doc-fiche .actions-doc button')].some(b => b.textContent === 'Ouvrir')",
+    "[...document.querySelectorAll('.doc-fiche:first-child .actions-doc button, .doc-fiche:first-child .liens-doc button')].map(b => b.textContent).join('/')",
+  )
+  // Les trois colonnes doivent faire le même tiers de fenêtre.
+  const largeurs = await win.webContents.executeJavaScript(
+    `(() => {
+       const l = document.getElementById('barre').offsetWidth
+       const c = document.querySelector('.colonne').offsetWidth
+       const d = document.getElementById('docs-barre').offsetWidth
+       return [l, c, d].join('/') + ' écart=' + (Math.max(l, c, d) - Math.min(l, c, d))
+     })()`,
   )
   // L'historique s'ouvre depuis la colonne de droite, pas depuis la carte.
   await win.webContents.executeJavaScript(
@@ -203,7 +212,9 @@ app.whenReady().then(async () => {
   console.log('reprise proposée      :', boutonReprise || 'AUCUNE', '| dans la liste :', repriseListe)
   console.log('note en anglais       :', noteAnglaise ? 'OUI (problème)' : 'non')
   console.log('versions (colonne)   :', versionsListees, '| la plus récente en tête :', premiereVersion)
-  console.log('carte sans actions   :', carteSansActions, '| fiche « Ouvrir » :', ficheOuvrir)
+  console.log('colonnes (px)        :', largeurs)
+  console.log('carte sans actions   :', carteSansActions)
+  console.log('actions du document  :', ficheOuvrir)
   console.log('états des fils        :', badgesEtat || 'aucun')
   console.log('conversations listées:', convsListees, '| active :', convActive, '| filtrées « bois » :', convsFiltrees)
   console.log('barre repliable      :', barreRepliee)
@@ -220,7 +231,8 @@ app.whenReady().then(async () => {
   const ok = rendus > 6 && puces === 3 && carteDoc && envoyePendant === 2 && marqueurRetire
     && docsListes === 2 && apres === 1 && !erreurs.length
     && convsListees === 3 && convActive === 0 && convsFiltrees === 1 && barreRepliee
-    && versionsListees === 3 && premiereVersion === 'v3' && carteSansActions && ficheOuvrir
+    && versionsListees === 3 && premiereVersion.startsWith('v3') && carteSansActions && ficheOuvrir === 'Ouvrir/Exporter…/Dans le Finder/Supprimer/3 versions ▾'
+    && Number(largeurs.split('écart=')[1]) <= 2
     && badgesEtat === 'en cours/inachevée/en attente'
     && /Reprendre/.test(boutonReprise) && !noteAnglaise && repriseListe === 1
   console.log(ok ? 'APERÇU OK' : 'APERÇU ÉCHEC')

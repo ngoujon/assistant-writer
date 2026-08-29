@@ -29,9 +29,10 @@ const CONFIG_DEFAUT = {
   bounds: null,
   conversation: null,
   promptVersion: 0,
-  // Migrations de largeur : une par colonne ajoutée.
+  // Migrations de largeur, une par étape de mise en page.
   elargieBarre: false,
   elargieDocs: false,
+  largeurTiers: false,
 }
 
 let config = { ...CONFIG_DEFAUT }
@@ -58,13 +59,14 @@ function loadConfig() {
     config = { ...CONFIG_DEFAUT }
   }
   const voulue = boundsParDefaut()
-  // Les colonnes latérales ont besoin de place : on élargit une fois par étape,
-  // sans jamais rétrécir une fenêtre que Nicolas aurait réglée lui-même.
-  if (!config.elargieDocs && config.bounds && (config.bounds.width || 0) < voulue.width) {
-    config.bounds = { ...config.bounds, width: voulue.width }
+  // Une fois, on ramène la fenêtre à la largeur voulue : les migrations
+  // précédentes l'avaient élargie au-delà du tiers d'écran.
+  if (!config.largeurTiers) {
+    config.bounds = { ...(config.bounds || {}), width: voulue.width, height: config.bounds?.height || voulue.height }
   }
   config.elargieBarre = true
   config.elargieDocs = true
+  config.largeurTiers = true
   // Des dimensions enregistrées incomplètes donneraient une fenêtre minuscule.
   if (config.bounds && !(config.bounds.width > 0 && config.bounds.height > 0)) {
     config.bounds = {
@@ -77,15 +79,14 @@ function loadConfig() {
 }
 
 /**
- * Un tiers de l'écran : assez pour la barre latérale et un fil confortable, sans
- * occuper la place d'une fenêtre de travail. Plancher à 620 px sur un petit écran.
+ * Un tiers de l'écran, en largeur. La fenêtre se partage ensuite en trois
+ * colonnes égales : conversations, fil, documents. Plancher à 480 px pour un
+ * petit écran, où les colonnes latérales se replient de toute façon.
  */
 function boundsParDefaut() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
-  // Deux colonnes latérales encadrent le fil : en dessous de 900 px, il n'en
-  // reste plus assez pour lire une phrase sans la couper.
   return {
-    width: Math.max(900, Math.round(width / 3)),
+    width: Math.max(480, Math.round(width / 3)),
     height: Math.round(height * 0.92),
   }
 }
@@ -588,6 +589,15 @@ function buildMenu() {
           label: 'Afficher les documents',
           accelerator: 'CmdOrCtrl+D',
           click: () => emit({ k: 'basculer-docs' }),
+        },
+        {
+          label: 'Largeur optimale (un tiers de l\'écran)',
+          accelerator: 'CmdOrCtrl+0',
+          click: () => {
+            if (!win || win.isDestroyed()) return
+            const { width, height } = boundsParDefaut()
+            win.setBounds({ ...win.getBounds(), width, height })
+          },
         },
         // Pas d'accélérateur « Esc » : la touche est traitée dans l'interface, où
         // elle refuse d'abord une demande de validation en attente.
