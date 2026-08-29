@@ -421,6 +421,7 @@ function addPermission(evt) {
   currentSources = null
   const [glyph, label] = describeTool(evt.toolName)
   const card = el('div', `msg perm${evt.summary?.danger ? ' danger' : ''}`)
+  if (evt.origine) card.appendChild(el('div', 'origine', `Demandé par « ${evt.origine} »`))
   card.appendChild(el('div', 't', evt.title || `${glyph} ${label} ?`))
   const sub = evt.subtitle || evt.reason
   if (sub) card.appendChild(el('div', 's', sub))
@@ -778,6 +779,7 @@ function renderConversations() {
 /** Ce qu'on veut voir d'un coup d'œil : ce qui tourne, et ce qui est resté en plan. */
 const ETATS = {
   en_cours: { texte: 'en cours', cls: 'vif' },
+  en_attente: { texte: 'en attente', cls: 'calme' },
   interrompu: { texte: 'interrompue', cls: 'tiede' },
   incomplet: { texte: 'inachevée', cls: 'tiede' },
 }
@@ -876,7 +878,11 @@ api.onEvent((evt) => {
     case 'conversation':
       convCourante = evt.id
       restaurer(evt.evenements)
-      setBusy(false)
+      // Un fil qui travaillait pendant qu'on regardait ailleurs travaille toujours.
+      setBusy(evt.statut === 'en_cours')
+      if (evt.statut === 'en_attente') {
+        addNote(`En attente d'une place : ${'deux conversations travaillent déjà'}. Elle partira toute seule.`)
+      }
       // Un fil laissé en plan se signale à l'ouverture, pas seulement dans la liste.
       if (evt.evenements?.length && (evt.statut === 'interrompu' || evt.statut === 'incomplet')) {
         proposerReprise('↻ Reprendre cette analyse')

@@ -858,3 +858,13 @@ body.barre-cachee .barre {
   border-radius: 6px;
 }
 .conv .rep:hover { background: var(--accent-soft); }
+
+/* ------------------------------------ un fil qui attend son tour, et d'où vient une carte */
+
+.conv .m .etat.calme { color: var(--text-dim); background: var(--code-bg); }
+.perm .origine {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}

@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { setDataRoot, setBibliotheque, bibliothequeParDefaut, P } from './doc/paths.mjs'
 import { AgentSession } from './agent/session.mjs'
+import { Pool, MAX_EN_PARALLELE } from './agent/pool.mjs'
 import { PROMPT_VERSION } from './agent/prompt.mjs'
 import {
   listerDocuments, lireDocument, supprimerDocument, versionsDocument, lireVersion, LISEZ_MOI,
@@ -33,13 +34,11 @@ const CONFIG_DEFAUT = {
 let config = { ...CONFIG_DEFAUT }
 let configPath = ''
 let win = null
-let session = null
+let pool = null
 let quitting = false
 
-/** La conversation ouverte dans la fenêtre. */
+/** La conversation regardée dans la fenêtre. Les autres continuent sans elle. */
 let courante = null
-/** Un tour est en cours : c'est ce qui allume « en cours » dans la liste. */
-let occupe = false
 /** Les règles ont changé : on n'essaie pas de reprendre les fils d'avant. */
 let resumeInterdit = false
 
@@ -183,24 +182,29 @@ function viderAttente() {
 // Ce que la fenêtre a affiché est réenregistré au fil de l'eau : le SDK sait
 // reprendre le contexte du modèle, pas ce qu'on avait sous les yeux.
 
-let tamponTexte = ''
+/** Le texte en cours de frappe du modèle, par fil : plusieurs écrivent à la fois. */
+const tampons = new Map()
 
-function viderTampon() {
-  const t = tamponTexte.trim()
-  tamponTexte = ''
-  if (t && courante) majListe(Conv.ajouter(courante.id, { k: 'texte', texte: t }))
+function viderTampon(convId) {
+  const t = (tampons.get(convId) || '').trim()
+  tampons.delete(convId)
+  if (t) majListe(Conv.ajouter(convId, { k: 'texte', texte: t }))
 }
 
-/** La liste des fils, avec le fil qui travaille en ce moment marqué comme tel. */
+/** La liste des fils, chacun portant son état réel : en cours, en attente, en plan. */
+const ETAT_VISIBLE = { travaille: 'en_cours', attend: 'en_attente' }
+
 function listeConversations(recherche) {
-  return Conv.lister(recherche).map((c) => (
-    c.id === courante?.id && occupe ? { ...c, statut: 'en_cours' } : c
-  ))
+  const etats = pool ? pool.etats() : new Map()
+  return Conv.lister(recherche).map((c) => {
+    const vif = ETAT_VISIBLE[etats.get(c.id)]
+    return vif ? { ...c, statut: vif } : c
+  })
 }
 
 function majListe(resume) {
   if (!resume) return
-  courante = { ...courante, ...resume }
+  if (resume.id === courante?.id) courante = { ...courante, ...resume }
   diffuserListe()
 }
 
@@ -208,10 +212,9 @@ function diffuserListe() {
   emit({ k: 'conversations', liste: listeConversations(), courante: courante?.id || null })
 }
 
-function noterUtilisateur(texte) {
-  if (!courante) return
-  viderTampon()
-  majListe(Conv.ajouter(courante.id, { k: 'user', texte }))
+function noterUtilisateur(convId, texte) {
+  viderTampon(convId)
+  majListe(Conv.ajouter(convId, { k: 'user', texte }))
 }
 
 /** Un argument d'outil lisible en une ligne, pour rejouer le fil plus tard. */
@@ -223,28 +226,27 @@ function argOutil(input) {
   return ''
 }
 
-function noterEvenement(evt) {
-  if (!courante) return
+function noterEvenement(convId, evt) {
   switch (evt.k) {
     case 'text-start':
-      viderTampon()
+      viderTampon(convId)
       break
     case 'text-delta':
-      tamponTexte += evt.text
+      tampons.set(convId, (tampons.get(convId) || '') + evt.text)
       break
     case 'tool-use':
-      viderTampon()
-      majListe(Conv.ajouter(courante.id, { k: 'outil', nom: evt.name, arg: argOutil(evt.input) }))
+      viderTampon(convId)
+      majListe(Conv.ajouter(convId, { k: 'outil', nom: evt.name, arg: argOutil(evt.input) }))
       break
     case 'source':
-      viderTampon()
-      majListe(Conv.ajouter(courante.id, {
+      viderTampon(convId)
+      majListe(Conv.ajouter(convId, {
         k: 'source', id: evt.source.id, titre: evt.source.titre, url: evt.source.url,
       }))
       break
     case 'document':
-      viderTampon()
-      majListe(Conv.ajouter(courante.id, {
+      viderTampon(convId)
+      majListe(Conv.ajouter(convId, {
         k: 'document',
         nom: evt.document.nom,
         titre: evt.document.titre,
@@ -255,19 +257,42 @@ function noterEvenement(evt) {
       }))
       break
     case 'result':
-      viderTampon()
-      majListe(Conv.marquerStatut(courante.id, evt.isError ? 'incomplet' : 'termine'))
+      viderTampon(convId)
+      majListe(Conv.marquerStatut(convId, evt.isError ? 'incomplet' : 'termine'))
       break
     case 'interrupted':
-      viderTampon()
-      majListe(Conv.marquerStatut(courante.id, 'interrompu'))
+      viderTampon(convId)
+      majListe(Conv.marquerStatut(convId, 'interrompu'))
       break
     case 'error':
-      viderTampon()
-      Conv.marquerStatut(courante.id, 'incomplet')
-      majListe(Conv.ajouter(courante.id, { k: 'note', texte: evt.message, kind: 'err' }))
+      viderTampon(convId)
+      Conv.marquerStatut(convId, 'incomplet')
+      majListe(Conv.ajouter(convId, { k: 'note', texte: evt.message, kind: 'err' }))
       break
   }
+}
+
+/**
+ * Un événement arrive d'un fil — pas forcément celui qu'on regarde. Il est
+ * toujours enregistré dans SON fil ; il n'est affiché que s'il vient du fil
+ * ouvert. C'est ce qui permet à deux recherches de tourner sans se mélanger.
+ */
+function routerEvenement(convId, evt) {
+  if (evt.k === 'ready' || evt.k === 'error') tracer('agent', convId, evt.k, evt)
+
+  if (evt.k === 'ready' && evt.sessionId) Conv.memoriserSession(convId, evt.sessionId)
+  // Le modèle a nommé le fil : on ne recouvre pas un titre posé à la main.
+  if (evt.k === 'titre') majListe(Conv.renommer(convId, evt.titre, { manuel: false }))
+  // Un document vient d'être écrit : la bibliothèque suit, quel que soit le fil.
+  if (evt.k === 'document') emit({ k: 'documents', documents: listerDocuments() })
+
+  noterEvenement(convId, evt)
+
+  // Le tour est fini : la place se libère et la file avance.
+  if (evt.k === 'result' || evt.k === 'interrupted') pool.finDeTour(convId)
+
+  if (convId === courante?.id) emit(evt)
+  else if (evt.k === 'document' || evt.k === 'result') diffuserListe()
 }
 
 // --------------------------------------------------------------- permission
@@ -284,6 +309,9 @@ function askPermission(req) {
     emit({
       k: 'permission',
       id,
+      origine: req.convId && req.convId !== courante?.id
+        ? (Conv.fil(req.convId)?.titre || 'une autre conversation')
+        : null,
       toolName: req.toolName,
       title: req.title,
       displayName: req.displayName,
@@ -315,12 +343,10 @@ function refuserToutes(message) {
 // ------------------------------------------------------------ conversations
 
 /**
- * Ouvre un fil : on reprend le contexte du modèle là où il s'était arrêté, et on
- * repeint son affichage.
+ * Ouvre un fil : on change ce qu'on regarde, rien d'autre.
  *
- * Relancer la session tue le travail en cours, sans prévenir et sans retour
- * possible. Donc : on ne relance jamais pour un fil déjà ouvert, et quitter un
- * fil qui travaille le marque « interrompu » pour pouvoir le reprendre.
+ * Ce qui travaille dans les autres fils continue de travailler — c'est tout
+ * l'intérêt d'avoir plusieurs sessions. Naviguer ne coûte rien et n'annule rien.
  */
 function ouvrirConversation(id, { neuve = false } = {}) {
   if (!neuve && id && id === courante?.id) {
@@ -328,27 +354,23 @@ function ouvrirConversation(id, { neuve = false } = {}) {
     return courante
   }
 
-  if (occupe && courante) {
-    tracer('fil quitté pendant un travail', courante.id)
-    Conv.marquerStatut(courante.id, 'interrompu')
-  }
-  refuserToutes('Changement de conversation.')
-  viderTampon()
-  occupe = false
-  tamponTexte = ''
+  if (courante) viderTampon(courante.id)
+  if (id) viderTampon(id)
 
   const conv = (id && Conv.fil(id)) || null
   courante = conv || Conv.creer()
   config.conversation = courante.id
   saveConfig()
 
-  session?.start({ resume: repriseDe(courante, neuve) })
+  pool.afficher(courante.id)
   peindreConversation(conv?.evenements || [])
   return courante
 }
 
-function repriseDe(conv, neuve) {
-  return !neuve && !resumeInterdit && conv?.sessionId ? conv.sessionId : undefined
+/** L'identifiant de session à reprendre pour ce fil, s'il en a un d'exploitable. */
+function repriseDe(convId) {
+  if (resumeInterdit) return undefined
+  return Conv.fil(convId)?.sessionId || undefined
 }
 
 function peindreConversation(evenements) {
@@ -356,7 +378,7 @@ function peindreConversation(evenements) {
     k: 'conversation',
     id: courante.id,
     titre: courante.titre || null,
-    statut: courante.statut || null,
+    statut: ETAT_VISIBLE[pool?.etat(courante.id)] || courante.statut || null,
     evenements: evenements || Conv.fil(courante.id)?.evenements || [],
   })
   diffuserListe()
@@ -369,14 +391,27 @@ function peindreConversation(evenements) {
 function reprendreConversation(id) {
   const cible = id || courante?.id
   if (!cible) return null
-  if (cible !== courante?.id) ouvrirConversation(cible)
-  if (!session?.running) session?.start({ resume: repriseDe(Conv.fil(cible), false) })
   const consigne = "Reprends exactement où tu t'étais arrêté, sans refaire ce qui est déjà fait. "
     + "Si tu as déjà de quoi écrire quelque chose d'utile, publie d'abord une version du document, "
     + "puis continue à l'enrichir."
-  noterUtilisateur(consigne)
-  session.send(consigne)
-  return cible
+  return demander(cible, consigne)
+}
+
+/**
+ * Achemine une demande vers son fil. Si deux fils travaillent déjà, elle attend
+ * son tour — et on le dit, plutôt que de laisser croire qu'il ne se passe rien.
+ */
+function demander(convId, texte) {
+  noterUtilisateur(convId, texte)
+  const sort = pool.envoyer(convId, texte)
+  if (sort === 'attente') {
+    const note = `En attente : ${MAX_EN_PARALLELE} conversations travaillent déjà. `
+      + 'Celle-ci partira dès qu\'une place se libère — tu peux continuer à lui écrire en attendant.'
+    majListe(Conv.ajouter(convId, { k: 'note', texte: note }))
+    if (convId === courante?.id) emit({ k: 'note', text: note })
+  }
+  diffuserListe()
+  return convId
 }
 
 // ---------------------------------------------------------------------- IPC
@@ -404,19 +439,19 @@ function wireIpc() {
   })
 
   ipcMain.on('chat:send', (_e, text) => {
-    if (!text?.trim()) return
-    noterUtilisateur(text.trim())
-    session.send(text)
+    if (!text?.trim() || !courante) return
+    demander(courante.id, text.trim())
   })
-  ipcMain.on('chat:interrupt', () => session.interrupt())
+  ipcMain.on('chat:interrupt', () => { if (courante) pool.interrompre(courante.id) })
   ipcMain.on('chat:config', (_e, patch) => {
     Object.assign(config, patch)
     saveConfig()
-    if (patch.model) session.setModel(patch.model)
-    // Profondeur et langue vivent dans le prompt système : il faut une session neuve.
+    if (patch.model) pool.setModel(patch.model)
+    // Profondeur et langue vivent dans le prompt système : les sessions repartent.
     if (patch.profondeur || patch.langue) {
       emit({ k: 'note', text: 'Nouvelles règles de rédaction : la suite repart sur un contexte neuf.' })
-      session.start({})
+      pool.toutArreter()
+      diffuserListe()
     }
   })
   ipcMain.on('perm:reply', (_e, { id, answer }) => resolvePermission(id, answer))
@@ -431,6 +466,7 @@ function wireIpc() {
     return listeConversations()
   })
   ipcMain.handle('conv:delete', (_e, id) => {
+    pool.oublier(id)
     Conv.supprimer(id)
     if (courante?.id === id) {
       const suivante = Conv.lister()[0]
@@ -503,7 +539,8 @@ function wireIpc() {
     saveConfig()
     setBibliotheque(filePaths[0])
     emit({ k: 'note', text: 'Bibliothèque déplacée : la suite repart sur un contexte neuf.' })
-    session?.start({})
+    pool.toutArreter()
+    diffuserListe()
     return { bibliotheque: P.bibliotheque(), documents: listerDocuments() }
   })
 
@@ -541,7 +578,7 @@ function buildMenu() {
         },
         // Pas d'accélérateur « Esc » : la touche est traitée dans l'interface, où
         // elle refuse d'abord une demande de validation en attente.
-        { label: 'Interrompre', accelerator: 'CmdOrCtrl+.', click: () => session.interrupt() },
+        { label: 'Interrompre', accelerator: 'CmdOrCtrl+.', click: () => { if (courante) pool.interrompre(courante.id) } },
         { type: 'separator' },
         { label: 'Ouvrir la bibliothèque', accelerator: 'CmdOrCtrl+Shift+O', click: () => shell.openPath(P.bibliotheque()) },
         { label: 'Ouvrir le journal de bord', click: () => shell.openPath(cheminJournal()) },
@@ -576,26 +613,15 @@ if (!app.requestSingleInstanceLock()) {
     buildMenu()
     wireIpc()
 
-    session = new AgentSession({
-      emit: (evt) => {
-        if (evt.k === 'ready' || evt.k === 'error' || evt.k === 'status') tracer('agent', evt.k, evt)
-        if (evt.k === 'status' && evt.state !== 'connecting') {
-          const desormais = evt.state === 'thinking'
-          if (desormais !== occupe) { occupe = desormais; diffuserListe() }
-        }
-        if (evt.k === 'ready' && evt.sessionId && courante) {
-          Conv.memoriserSession(courante.id, evt.sessionId)
-        }
-        // Le modèle a nommé le fil : on ne recouvre pas un titre posé à la main.
-        if (evt.k === 'titre' && courante) majListe(Conv.renommer(courante.id, evt.titre, { manuel: false }))
-        // Un document vient d'être écrit : la bibliothèque du panneau suit.
-        if (evt.k === 'document') emit({ k: 'documents', documents: listerDocuments() })
-        noterEvenement(evt)
-        emit(evt)
-      },
-      askPermission,
-      getConfig: () => config,
-      ouvrirFichier,
+    pool = new Pool({
+      creerSession: (convId) => new AgentSession({
+        emit: (evt) => routerEvenement(convId, evt),
+        askPermission: (req) => askPermission({ ...req, convId }),
+        getConfig: () => config,
+        ouvrirFichier,
+      }),
+      repriseDe,
+      surEtat: () => diffuserListe(),
     })
 
     process.on('unhandledRejection', (err) => {
@@ -630,8 +656,8 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     quitting = true
     refuserToutes("Fermeture de l'application.")
-    viderTampon()
-    session?.stop()
+    for (const id of [...tampons.keys()]) viderTampon(id)
+    pool?.toutArreter()
   })
 
   app.on('window-all-closed', () => { /* l'app reste dans le Dock */ })

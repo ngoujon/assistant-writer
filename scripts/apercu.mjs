@@ -204,7 +204,7 @@ app.whenReady().then(async () => {
   const ok = rendus > 6 && puces === 3 && carteDoc && envoyePendant === 2 && marqueurRetire
     && docsListes === 2 && apres === 1 && !erreurs.length
     && convsListees === 3 && convActive === 0 && convsFiltrees === 1 && barreRepliee
-    && versionsListees === 3 && boutonExport && badgesEtat === 'en cours/inachevée'
+    && versionsListees === 3 && boutonExport && badgesEtat === 'en cours/inachevée/en attente'
     && /Reprendre/.test(boutonReprise) && !noteAnglaise && repriseListe === 1
   console.log(ok ? 'APERÇU OK' : 'APERÇU ÉCHEC')
   app.exit(ok ? 0 : 1)

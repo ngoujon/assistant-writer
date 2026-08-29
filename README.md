@@ -51,14 +51,36 @@ Le titre du fil est **écrit par l'assistant** dès qu'il a compris la demande (
 sept mots sur le sujet, pas ta formulation). Un titre que tu poses toi-même par
 double-clic est définitif : plus rien ne le recouvre.
 
+## Deux recherches en même temps
+
+Chaque conversation a **sa propre session**. Deux tournent de front ; les demandes
+suivantes attendent leur tour et partent toutes seules dès qu'une place se libère.
+Au-delà de deux, la machine rame et les recherches se marchent dessus — c'est un
+plafond, pas une limite technique (`MAX_EN_PARALLELE`, dans `src/agent/pool.mjs`).
+
+**Naviguer n'interrompt rien.** Changer de conversation ne fait que changer ce qu'on
+regarde : ce qui travaille continue, et son fil se remplit en arrière-plan. Tu le
+retrouves complet en y revenant.
+
+| État dans la liste | Ce que ça veut dire |
+|---|---|
+| **en cours** (point violet) | une recherche tourne dans ce fil, en ce moment |
+| **en attente** | la demande est prise, elle part dès qu'une place se libère |
+| **inachevée** / **interrompue** | le dernier tour s'est arrêté — bouton ↻ pour reprendre |
+
+Tu peux écrire à un fil qui attend : tes messages s'accumulent et lui arrivent d'un
+bloc quand vient son tour. Écrire à un fil qui travaille déjà marche aussi — il en
+tient compte à sa prochaine respiration, sans repartir de zéro.
+
+Un fil qui ne travaille plus et qu'on ne regarde plus **rend son processus** ; son
+contexte est enregistré, il se reprend sans rien perdre.
+
 ## Rien ne reste en plan
 
 Une recherche longue peut s'arrêter en route. Trois filets, dans cet ordre :
 
-1. **On ne coupe plus le travail par accident.** Rouvrir le fil déjà ouvert ne relance
-   plus la session — c'était le vrai bug : chaque clic dans la liste tuait la recherche
-   en cours, sans rien dire. Quitter un fil qui travaille le marque désormais
-   **interrompu** au lieu de le perdre.
+1. **Rien n'est coupé par accident.** Chaque fil a sa session : naviguer, en ouvrir un
+   autre, en créer un nouveau — rien de tout cela ne touche à une recherche en cours.
 2. **Reconnexion automatique.** Si Claude Code s'arrête en cours de route, l'app
    rebranche la conversation sur son contexte (deux tentatives) et le dit dans le fil.
 3. **↻ Reprendre**, à un clic — dans le fil quand un tour s'arrête, et sur la ligne de
@@ -223,6 +245,7 @@ npx electron scripts/apercu.mjs   # rejoue une conversation type et capture l'in
 | `src/agent/prompt.mjs` | les consignes : méthode, forme du document, ton |
 | `src/agent/outils.mjs` | les outils MCP (consulter, rédiger, bibliothèque) |
 | `src/agent/gardes.mjs` | les refus déterministes : on ne cite que ce qu'on a lu |
+| `src/agent/pool.mjs` | deux sessions de front, une file d'attente, zéro interruption |
 | `src/doc/conversations.mjs` | les fils : titre, recherche, affichage rejouable |
 | `src/doc/journal.mjs` | le journal de bord, seule trace quand l'app est lancée du Dock |
 | `scripts/signature.sh` | l'identité de signature locale, stable d'une version à l'autre |

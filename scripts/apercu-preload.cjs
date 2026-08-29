@@ -17,7 +17,7 @@ const VERSIONS = [
 const CONVERSATIONS = [
   { id: 'c1', titre: 'Situation économique de Londres — état des lieux, août 2026', maj_le: new Date().toISOString(), documents: 1, messages: 3, sansTitre: false, statut: 'en_cours' },
   { id: 'c2', titre: 'Le marché du bois construction en France', maj_le: new Date(Date.now() - 86400000).toISOString(), documents: 1, messages: 2, sansTitre: false, statut: 'incomplet' },
-  { id: 'c3', titre: 'Nouvelle conversation', maj_le: new Date(Date.now() - 5 * 86400000).toISOString(), documents: 0, messages: 0, sansTitre: true },
+  { id: 'c3', titre: "Réglementation européenne sur l'IA", maj_le: new Date(Date.now() - 120000).toISOString(), documents: 0, messages: 1, sansTitre: false, statut: 'en_attente' },
 ]
 
 contextBridge.exposeInMainWorld('redacteur', {
