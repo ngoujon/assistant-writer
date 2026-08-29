@@ -38,10 +38,15 @@ const info = bib.ecrireDocument({
 })
 
 const brut = fs.readFileSync(info.chemin, 'utf8')
-assert.ok(brut.startsWith('---\n'), "le document porte un en-tête YAML")
-assert.match(brut, /titre: "Situation économique de Londres"/)
-assert.match(brut, /sources: 2/)
-assert.match(brut, /^# Situation économique de Londres$/m, 'le titre H1 est ajouté s\'il manque')
+assert.ok(brut.startsWith('# Situation économique de Londres'), 'le document commence par son titre, pas par un en-tête technique')
+assert.ok(!brut.startsWith('---'), "plus d'en-tête YAML en tête de fichier")
+
+// Les informations de production sont en queue, lisibles puis exploitables.
+assert.match(brut, /## À propos de ce document/)
+assert.match(brut, /- \*\*Version 1\*\* — mise à jour le/)
+assert.match(brut, /Rédigé par l'Assistant Rédacteur \(claude-opus-5\)/)
+assert.match(brut, /<!-- assistant-redacteur: \{.*"version":1.*\} -->/)
+assert.ok(brut.indexOf('## À propos') > brut.indexOf('## Sources'), "le bloc technique ferme le document")
 assert.ok(!brut.includes('à jeter'), 'la section « Sources » écrite à la main est remplacée')
 assert.match(brut, /## Sources/)
 assert.match(brut, /1\. \*\*GDP, UK regions\*\* — ONS — publié le 11 juin 2026/)
@@ -67,8 +72,37 @@ assert.equal(maj.remplace, true)
 assert.equal(maj.version, 2)
 assert.equal(maj.versions, 1, 'la version 1 est passée aux archives')
 assert.equal(maj.sources_citees, 1)
-assert.equal(bib.separerFrontmatter(fs.readFileSync(maj.chemin, 'utf8')).entete.cree_le, relu.entete.cree_le,
+assert.equal(bib.separerMeta(fs.readFileSync(maj.chemin, 'utf8')).meta.cree_le, relu.entete.cree_le,
   'la date de création survit à une réécriture')
+
+// Le sommaire est composé par l'app, à partir des titres réellement présents.
+{
+  const corps = '# T\n\nRésumé.\n\n## Un\n\ntexte\n\n### Un bis\n\ntexte\n\n## Deux\n\ntexte\n\n## Trois\n\ntexte'
+  const d = bib.ecrireDocument({ titre: 'Doc sommaire', markdown: corps, sources: ['s1'] })
+  const t = fs.readFileSync(d.chemin, 'utf8')
+  assert.match(t, /## Sommaire/)
+  assert.ok(t.indexOf('## Sommaire') < t.indexOf('## Un'), 'le sommaire précède les sections')
+  assert.ok(t.indexOf('Résumé.') < t.indexOf('## Sommaire'), 'le résumé passe avant le sommaire')
+  assert.match(t, /- \[Un\]\(#un\)/)
+  assert.match(t, /  - \[Un bis\]\(#un-bis\)/, 'les sous-titres sont indentés')
+  assert.equal(bib.ancre('Le marché du travail se tend'), 'le-marché-du-travail-se-tend')
+
+  // Un sommaire écrit par le modèle est remplacé, pas empilé.
+  const d2 = bib.ecrireDocument({
+    nom: d.nom, titre: 'Doc sommaire',
+    markdown: '# T\n\nRésumé.\n\n## Sommaire\n\n- [Faux](#faux)\n\n## Un\n\ntexte\n\n## Deux\n\ntexte\n\n## Trois\n\ntexte',
+    sources: ['s1'],
+  })
+  const t2 = fs.readFileSync(d2.chemin, 'utf8')
+  assert.equal((t2.match(/## Sommaire/g) || []).length, 1)
+  assert.ok(!t2.includes('[Faux]'))
+}
+
+// Trop peu de titres : pas de sommaire, ça n'aiderait personne.
+{
+  const d = bib.ecrireDocument({ titre: 'Doc court', markdown: '# C\n\nRésumé.\n\n## Un\n\ntexte', sources: ['s1'] })
+  assert.ok(!fs.readFileSync(d.chemin, 'utf8').includes('## Sommaire'))
+}
 
 // L'historique se relit, et la version 1 a bien gardé son contenu d'origine.
 const hist = bib.versionsDocument(info.nom)
@@ -92,7 +126,7 @@ assert.equal(sansBiblio.sources_citees, 0)
 assert.ok(!fs.readFileSync(sansBiblio.chemin, 'utf8').includes('## Sources'))
 
 // Le dossier « Versions » n'est pas un document.
-assert.equal(bib.listerDocuments().length, 2)
+assert.equal(bib.listerDocuments().length, 4)
 assert.equal(bib.listerDocuments()[0].nom, sansBiblio.nom, 'le plus récemment modifié en tête')
 
 fs.rmSync(bac, { recursive: true, force: true })

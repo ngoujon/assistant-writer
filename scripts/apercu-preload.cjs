@@ -22,7 +22,7 @@ const CONVERSATIONS = [
 
 contextBridge.exposeInMainWorld('redacteur', {
   init: async () => ({
-    config: { model: 'claude-opus-5', profondeur: 'standard', langue: 'français', ouvrirAuto: true, barreVisible: true },
+    config: { model: 'claude-opus-5', profondeur: 'standard', langue: 'français', ouvrirAuto: false, barreVisible: true, docsVisible: true },
     bibliotheque: '/Users/demo/Assistant Rédacteur',
     documents: DOCUMENTS,
     conversations: CONVERSATIONS,

@@ -27,7 +27,7 @@
             <path d="M4 6.5h16M4 12h16M4 17.5h16" />
           </svg>
         </button>
-        <button id="btn-biblio" class="icon-btn" title="Bibliothèque" aria-label="Bibliothèque">
+        <button id="btn-biblio" class="icon-btn" title="Documents (⌘D)" aria-label="Documents">
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M4 5.2A1.2 1.2 0 0 1 5.2 4h4.3A2.5 2.5 0 0 1 12 6.5V20a2.2 2.2 0 0 0-2.2-2.2H4z" />
             <path d="M20 5.2A1.2 1.2 0 0 0 18.8 4h-4.3A2.5 2.5 0 0 0 12 6.5V20a2.2 2.2 0 0 1 2.2-2.2H20z" />
@@ -101,11 +101,6 @@
       </div>
     </section>
 
-    <section id="biblio" class="panneau hidden">
-      <h4>Documents</h4>
-      <div id="liste-docs" class="docs"></div>
-    </section>
-
     <main id="scroll">
       <div id="thread"></div>
     </main>
@@ -125,6 +120,14 @@
       <div class="hint"><kbd>↩</kbd> envoyer · <kbd>⇧↩</kbd> nouvelle ligne · <kbd>esc</kbd> stop — tu peux écrire pendant qu'il cherche</div>
     </footer>
       </div>
+
+      <aside id="docs-barre" class="docs-barre">
+        <div class="docs-tete">
+          <span>Documents</span>
+          <button id="btn-ouvrir-dossier" class="mini" title="Ouvrir le dossier dans le Finder">⤴</button>
+        </div>
+        <div id="liste-docs" class="docs"></div>
+      </aside>
     </div>
 
     <script type="module" src="app.js"></script>

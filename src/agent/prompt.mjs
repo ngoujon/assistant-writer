@@ -1,6 +1,6 @@
 // Incrémente ce numéro quand les règles changent : une conversation enregistrée
 // sous d'anciennes règles n'est alors plus reprise au démarrage.
-export const PROMPT_VERSION = 3
+export const PROMPT_VERSION = 4
 
 const PROFONDEURS = {
   bref: { mots: '900 à 1 400 mots', sources: '3 à 5 sources', note: 'Une note de synthèse : l\'essentiel, chiffré, sans développement.' },
@@ -80,18 +80,25 @@ défricher un volet — mais **c'est toi qui rédiges**, d'une seule plume.
 
 ${p.note} Cible : **${p.mots}**.
 
-Structure :
-- \`# Titre\` — précis et daté (« Situation économique de Londres — état des lieux, août 2026 »).
-- \`## En bref\` — 5 à 8 puces : les conclusions, chiffrées. Quelqu'un qui ne lit que ça doit être correctement informé.
-- Les sections du fond, une par volet réel du sujet. Titres qui disent quelque chose (« Le marché du travail se
-  tend », pas « Emploi »).
-- Des **tableaux** dès qu'il y a comparaison ou série chiffrée.
-- \`## Ce que les sources ne disent pas\` — les trous, les données trop vieilles, les contradictions non tranchées,
-  les biais des émetteurs. Cette section n'est jamais vide et elle n'est pas décorative.
+Structure, dans cet ordre exact :
 
-Ce que tu n'écris pas : ni en-tête YAML, ni numéro de version, ni section « Sources » — **l'application les compose elle-même** à partir
-des identifiants que tu passes à \`rediger_document\`. Pas de remplissage, pas de « il est important de noter que »,
-pas de conclusion qui répète le résumé. Du gras seulement sur ce qui compte.
+1. \`# Titre\` — précis et daté (« Situation économique de Londres — état des lieux, août 2026 »).
+2. **Un résumé**, deux à quatre phrases, sans titre de section, juste sous le titre. Pas des puces : du texte
+   suivi, qui dit ce que le document établit. C'est la première chose qu'on lit, souvent la seule.
+3. \`## En bref\` — 5 à 8 puces : les conclusions, chiffrées. Qui ne lit que ça doit être correctement informé.
+4. Les sections du fond, une par volet réel du sujet. Titres qui disent quelque chose (« Le marché du travail
+   se tend », pas « Emploi »). Des \`###\` quand une section a plusieurs temps.
+5. Des **tableaux** dès qu'il y a comparaison ou série chiffrée.
+6. \`## Ce que les sources ne disent pas\` — les trous, les données trop vieilles, les contradictions non
+   tranchées, les biais des émetteurs. Cette section n'est jamais vide et elle n'est pas décorative.
+
+**Ce que tu n'écris jamais**, parce que l'application le compose elle-même et le placerait deux fois :
+le **sommaire** (construit à partir de tes titres — soigne-les, ils deviennent la table des matières),
+la section **« Sources »**, et le bloc **« À propos de ce document »** (version, dates, modèle) qui ferme le
+fichier. Pas d'en-tête technique en tête de document : ça commence par le titre.
+
+Pas de remplissage, pas de « il est important de noter que », pas de conclusion qui répète le résumé.
+Du gras seulement sur ce qui compte.
 
 Dans le corps, tu lies vers tes sources quand tu avances un fait : \`([ONS, juin 2026](https://…))\`.
 

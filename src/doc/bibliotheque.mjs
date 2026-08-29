@@ -36,34 +36,81 @@ function nomSur(nom) {
   return base.endsWith('.md') ? base : `${base}.md`
 }
 
-// ------------------------------------------------------------- frontmatter
+// -------------------------------------------------------------- métadonnées
+//
+// Les informations de production (version, dates, modèle) ne sont pas ce qu'on
+// vient lire : elles vivent en fin de document, dans une section lisible, et sous
+// forme lisible par la machine dans un commentaire HTML — invisible à l'affichage,
+// mais suffisant pour retrouver la version d'un document sans le relire en entier.
 
-function echapper(v) {
-  const s = String(v ?? '').replace(/"/g, '\\"')
-  return `"${s}"`
-}
+const MARQUEUR = 'assistant-redacteur:'
+const RE_META = /\n?<!--\s*assistant-redacteur:\s*(\{[\s\S]*?\})\s*-->\s*$/
+const RE_APROPOS = /\n+(?:---\n+)?##\s+À propos de ce document[\s\S]*$/
 
-export function separerFrontmatter(brut) {
-  const m = String(brut).match(/^---\n([\s\S]*?)\n---\n?/)
-  if (!m) return { entete: {}, corps: String(brut) }
-  const entete = {}
-  for (const ligne of m[1].split('\n')) {
+export function separerMeta(brut) {
+  const texte = String(brut)
+
+  // Format actuel : le bloc technique est en queue de document.
+  const m = texte.match(RE_META)
+  if (m) {
+    let meta = {}
+    try { meta = JSON.parse(m[1]) } catch {}
+    return { meta, corps: texte.slice(0, m.index).replace(RE_APROPOS, '').trimEnd() }
+  }
+
+  // Ancien format : en-tête YAML. On sait encore le lire — les documents déjà
+  // écrits ne doivent pas devenir illisibles parce que la mise en page a changé.
+  const y = texte.match(/^---\n([\s\S]*?)\n---\n?/)
+  if (!y) return { meta: {}, corps: texte }
+  const meta = {}
+  for (const ligne of y[1].split('\n')) {
     const kv = ligne.match(/^([a-z_]+)\s*:\s*(.*)$/i)
     if (!kv) continue
     let v = kv[2].trim()
     if (/^".*"$/.test(v)) v = v.slice(1, -1).replace(/\\"/g, '"')
-    entete[kv[1]] = v
+    meta[kv[1]] = /^\d+$/.test(v) ? Number(v) : v
   }
-  return { entete, corps: String(brut).slice(m[0].length) }
+  return { meta, corps: texte.slice(y[0].length) }
 }
 
-function composerFrontmatter(e) {
-  const lignes = ['---']
-  for (const [k, v] of Object.entries(e)) {
-    if (v === undefined || v === null || v === '') continue
-    lignes.push(`${k}: ${typeof v === 'number' ? v : echapper(v)}`)
+/** L'ancre d'un titre, à la façon de GitHub : c'est ce que suivent les liseuses. */
+export function ancre(titre) {
+  return String(titre)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]/gu, '')
+    .trim()
+    .replace(/\s+/g, '-')
+}
+
+/**
+ * Le sommaire, construit à partir des titres réellement présents. Composé ici et
+ * non par le modèle : une table des matières qui ment est pire que pas de table.
+ */
+export function composerSommaire(corps) {
+  const titres = []
+  let dansCode = false
+  for (const ligne of String(corps).split('\n')) {
+    if (/^\s*```/.test(ligne)) { dansCode = !dansCode; continue }
+    if (dansCode) continue
+    const m = ligne.match(/^(#{2,3})\s+(.+?)\s*$/)
+    if (m) titres.push({ niveau: m[1].length, texte: m[2].replace(/\s*#+\s*$/, '') })
   }
-  lignes.push('---', '')
+  if (titres.length < 3) return ''
+  const lignes = titres.map((t) => `${t.niveau === 3 ? '  ' : ''}- [${t.texte}](#${ancre(t.texte)})`)
+  return `## Sommaire\n\n${lignes.join('\n')}\n`
+}
+
+function blocAPropos(meta) {
+  const lignes = [
+    '## À propos de ce document',
+    '',
+    `- **Version ${meta.version}** — mise à jour le ${jolieDate(meta.mis_a_jour_le) || meta.mis_a_jour_le}`,
+    `- Créé le ${jolieDate(meta.cree_le) || meta.cree_le}`,
+    `- ${meta.sources} source${meta.sources > 1 ? 's' : ''} consultée${meta.sources > 1 ? 's' : ''}`,
+  ]
+  if (meta.sujet) lignes.push(`- Demande : « ${meta.sujet} »`)
+  lignes.push(`- Rédigé par l'Assistant Rédacteur${meta.modele ? ` (${meta.modele})` : ''}`)
+  lignes.push('', `<!-- ${MARQUEUR} ${JSON.stringify(meta)} -->`, '')
   return lignes.join('\n')
 }
 
@@ -77,7 +124,7 @@ function infoDepuisFichier(nom) {
   const chemin = P.document(nom)
   const stat = fs.statSync(chemin)
   const brut = fs.readFileSync(chemin, 'utf8')
-  const { entete, corps } = separerFrontmatter(brut)
+  const { meta: entete, corps } = separerMeta(brut)
   return {
     nom,
     chemin,
@@ -88,7 +135,7 @@ function infoDepuisFichier(nom) {
     sources: Number(entete.sources || 0),
     version: Number(entete.version || 1),
     versions: compterVersions(nom),
-    mots: compterMots(corps),
+    mots: Number(entete.mots) || compterMots(corps),
     octets: stat.size,
     modifie_a: stat.mtime.toISOString(),
   }
@@ -118,7 +165,7 @@ export function lireDocument(nom) {
   const fichier = nomSur(nom)
   if (!existe(fichier)) throw new Error(`Aucun document « ${fichier} » dans la bibliothèque.`)
   const brut = fs.readFileSync(P.document(fichier), 'utf8')
-  const { entete, corps } = separerFrontmatter(brut)
+  const { meta: entete, corps } = separerMeta(brut)
   return { ...infoDepuisFichier(fichier), entete, markdown: corps }
 }
 
@@ -147,6 +194,25 @@ export function composerBibliographie(ids) {
   return `${TITRE_SOURCES}\n\n${lignes.join('\n\n')}\n`
 }
 
+/** Retire un sommaire ou un bloc « À propos » que le modèle aurait écrit lui-même. */
+function sansSommaire(markdown) {
+  return String(markdown).replace(/^#{2,3}\s*(Sommaire|Table des mati[eè]res)\s*\n[\s\S]*?(?=\n#{1,3}\s)/im, '')
+}
+
+function sansAPropos(markdown) {
+  return String(markdown).replace(/\n+(?:---\n+)?#{2,3}\s+À propos de ce document[\s\S]*$/i, '\n').trimEnd()
+}
+
+/** Glisse le sommaire juste avant la première section : après le titre et le résumé. */
+function avecSommaire(corps) {
+  const sommaire = composerSommaire(corps)
+  if (!sommaire) return corps
+  const lignes = corps.split('\n')
+  const i = lignes.findIndex((l, n) => n > 0 && /^##\s+/.test(l))
+  if (i < 0) return `${corps}\n\n${sommaire}`
+  return `${lignes.slice(0, i).join('\n').trimEnd()}\n\n${sommaire}\n${lignes.slice(i).join('\n')}`
+}
+
 /** Retire la section « Sources » que le modèle aurait écrite lui-même. */
 function sansSectionSources(markdown) {
   const re = /\n#{2,3}\s*(Sources|Sources consultées|Bibliographie|Références)\s*\n[\s\S]*$/i
@@ -168,26 +234,29 @@ export function ecrireDocument({ titre, sujet, markdown, sources = [], nom, mode
   // Réécrire ne détruit rien : la version en place part d'abord aux archives.
   // C'est ce qui permet de retoucher un document en conversation sans jamais
   // avoir à demander « tu confirmes ? ».
-  const ancien = dejaLa ? separerFrontmatter(fs.readFileSync(chemin, 'utf8')).entete : {}
+  const ancien = dejaLa ? separerMeta(fs.readFileSync(chemin, 'utf8')).meta : {}
   if (dejaLa) archiver(fichier)
 
   let corps = sansSectionSources(markdown).trim()
-  if (!/^#\s+/m.test(corps.split('\n')[0] || '')) corps = `# ${titre.trim()}\n\n${corps}`
+  corps = sansSommaire(sansAPropos(corps))
+  if (!/^#\s+/.test(corps.split('\n')[0] || '')) corps = `# ${titre.trim()}\n\n${corps}`
+
+  const meta = {
+    titre: titre.trim(),
+    sujet: sujet?.trim() || undefined,
+    cree_le: ancien.cree_le || aujourdhui(),
+    mis_a_jour_le: aujourdhui(),
+    version: Number(ancien.version || 0) + 1,
+    sources: sources.filter((id) => parId(id)).length,
+    mots: compterMots(corps),
+    modele: modele || undefined,
+  }
 
   const biblio = composerBibliographie(sources)
   const contenu = [
-    composerFrontmatter({
-      titre: titre.trim(),
-      sujet: sujet?.trim() || undefined,
-      cree_le: ancien.cree_le || aujourdhui(),
-      mis_a_jour_le: aujourdhui(),
-      version: Number(ancien.version || 0) + 1,
-      sources: biblio ? sources.filter((id) => parId(id)).length : 0,
-      modele: modele || undefined,
-      redige_par: 'Assistant Rédacteur',
-    }),
-    corps,
+    avecSommaire(corps),
     biblio ? `\n\n---\n\n${biblio}` : '\n',
+    `\n---\n\n${blocAPropos(meta)}`,
   ].join('')
 
   fs.writeFileSync(chemin, contenu)
@@ -220,7 +289,7 @@ function archiver(fichier) {
   const chemin = P.document(fichier)
   let brut
   try { brut = fs.readFileSync(chemin, 'utf8') } catch { return null }
-  const { entete } = separerFrontmatter(brut)
+  const { meta: entete } = separerMeta(brut)
   const n = Number(entete.version || compterVersions(fichier) + 1) || 1
   const dossier = dossierVersions(fichier)
   fs.mkdirSync(dossier, { recursive: true })
@@ -248,7 +317,7 @@ export function versionsDocument(nom) {
     const chemin = path.join(dossierVersions(fichier), f)
     try {
       const brut = fs.readFileSync(chemin, 'utf8')
-      const { entete, corps } = separerFrontmatter(brut)
+      const { meta: entete, corps } = separerMeta(brut)
       const stat = fs.statSync(chemin)
       out.push({
         numero: Number(m[1]), courante: false, chemin,
@@ -265,7 +334,7 @@ export function lireVersion(nom, numero) {
   const v = versionsDocument(nom).find((x) => x.numero === Number(numero))
   if (!v) throw new Error(`Le document « ${nomSur(nom)} » n'a pas de version ${numero}.`)
   const brut = fs.readFileSync(v.chemin, 'utf8')
-  const { entete, corps } = separerFrontmatter(brut)
+  const { meta: entete, corps } = separerMeta(brut)
   return { ...v, nom: nomSur(nom), entete, markdown: corps }
 }
 
@@ -278,12 +347,17 @@ export function restaurerVersion(nom, numero) {
   const fichier = nomSur(nom)
   const v = lireVersion(fichier, numero)
   if (v.courante) throw new Error(`La version ${numero} est déjà celle en place.`)
+  const enPlace = separerMeta(fs.readFileSync(P.document(fichier), 'utf8')).meta
   archiver(fichier)
-  const { entete } = separerFrontmatter(fs.readFileSync(P.document(fichier), 'utf8'))
-  const nouveau = Number(entete.version || 1) + 1
-  const brut = fs.readFileSync(v.chemin, 'utf8')
-  const remis = brut.replace(/^(---\n[\s\S]*?)\nversion: \d+/m, `$1\nversion: ${nouveau}`)
-  fs.writeFileSync(P.document(fichier), remis.includes(`version: ${nouveau}`) ? remis : brut)
+  // Le texte revient tel quel ; seules les métadonnées avancent d'un cran, avec
+  // la trace de ce qu'on a restauré.
+  const meta = {
+    ...v.entete,
+    mis_a_jour_le: aujourdhui(),
+    version: Number(enPlace.version || 1) + 1,
+    restauree_depuis: Number(numero),
+  }
+  fs.writeFileSync(P.document(fichier), `${v.markdown.trimEnd()}\n\n---\n\n${blocAPropos(meta)}`)
   return { ...infoDepuisFichier(fichier), restauree_depuis: Number(numero) }
 }
 

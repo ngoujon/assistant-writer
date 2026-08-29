@@ -20,15 +20,18 @@ const CONFIG_DEFAUT = {
   // Longueur et nombre de sources visés. Voir agent/prompt.mjs.
   profondeur: 'standard',
   langue: 'français',
-  // Ouvrir le document dans l'app Markdown dès qu'il est écrit.
-  ouvrirAuto: true,
+  // Ouvrir le document dans l'app Markdown dès qu'il est écrit. Éteint : les
+  // documents s'ouvrent depuis le panneau de droite, quand on le décide.
+  ouvrirAuto: false,
   bibliotheque: null,
   barreVisible: true,
+  docsVisible: true,
   bounds: null,
   conversation: null,
   promptVersion: 0,
-  // Migration : la fenêtre d'avant la barre latérale était trop étroite pour elle.
+  // Migrations de largeur : une par colonne ajoutée.
   elargieBarre: false,
+  elargieDocs: false,
 }
 
 let config = { ...CONFIG_DEFAUT }
@@ -55,11 +58,13 @@ function loadConfig() {
     config = { ...CONFIG_DEFAUT }
   }
   const voulue = boundsParDefaut()
-  // La barre latérale a besoin de place : on élargit une fois, sans jamais rétrécir.
-  if (!config.elargieBarre && config.bounds && (config.bounds.width || 0) < voulue.width) {
+  // Les colonnes latérales ont besoin de place : on élargit une fois par étape,
+  // sans jamais rétrécir une fenêtre que Nicolas aurait réglée lui-même.
+  if (!config.elargieDocs && config.bounds && (config.bounds.width || 0) < voulue.width) {
     config.bounds = { ...config.bounds, width: voulue.width }
   }
   config.elargieBarre = true
+  config.elargieDocs = true
   // Des dimensions enregistrées incomplètes donneraient une fenêtre minuscule.
   if (config.bounds && !(config.bounds.width > 0 && config.bounds.height > 0)) {
     config.bounds = {
@@ -77,8 +82,10 @@ function loadConfig() {
  */
 function boundsParDefaut() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
+  // Deux colonnes latérales encadrent le fil : en dessous de 900 px, il n'en
+  // reste plus assez pour lire une phrase sans la couper.
   return {
-    width: Math.max(620, Math.round(width / 3)),
+    width: Math.max(900, Math.round(width / 3)),
     height: Math.round(height * 0.92),
   }
 }
@@ -430,6 +437,7 @@ function wireIpc() {
         langue: config.langue,
         ouvrirAuto: config.ouvrirAuto,
         barreVisible: config.barreVisible !== false,
+        docsVisible: config.docsVisible !== false,
       },
       bibliotheque: P.bibliotheque(),
       documents: listerDocuments(),
@@ -575,6 +583,11 @@ function buildMenu() {
           label: 'Afficher la liste des conversations',
           accelerator: 'CmdOrCtrl+L',
           click: () => emit({ k: 'basculer-barre' }),
+        },
+        {
+          label: 'Afficher les documents',
+          accelerator: 'CmdOrCtrl+D',
+          click: () => emit({ k: 'basculer-docs' }),
         },
         // Pas d'accélérateur « Esc » : la touche est traitée dans l'interface, où
         // elle refuse d'abord une demande de validation en attente.

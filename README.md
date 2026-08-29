@@ -29,6 +29,7 @@ Un clic l'ouvre, la croix la masque (elle reste dans le Dock), `⌘Q` la quitte.
 | `⌘.` | interrompre l'agent |
 | `⌘N` | nouvelle conversation |
 | `⌘L` | afficher / replier la liste des conversations |
+| `⌘D` | afficher / replier la colonne des documents |
 | `⌘⇧O` | ouvrir la bibliothèque dans le Finder |
 
 ## Plusieurs sujets en parallèle
@@ -117,6 +118,22 @@ Le reste — recouper deux chiffres contradictoires, préférer une source prima
 signaler une donnée trop vieille — relève des consignes (`src/agent/prompt.mjs`), pas
 du code. Les garde-fous couvrent ce qui est vérifiable mécaniquement.
 
+## Trois colonnes
+
+| Colonne | Contenu |
+|---|---|
+| **Gauche** (`⌘L`) | les conversations, avec recherche dans tout le contenu |
+| **Centre** | le fil : ce que tu demandes, ce qu'il lit, ce qu'il publie |
+| **Droite** (`⌘D`) | les **documents**, du plus récent au plus ancien, avec leurs versions |
+
+Le document ne s'ouvre plus tout seul quand il est écrit. Il apparaît dans la colonne
+de droite avec un bouton **Ouvrir** ; à côté, **↧** exporte une copie, **⤴** le montre
+dans le Finder, **×** le supprime. Un document à plusieurs versions se déplie :
+chacune, **la plus récente en tête**, s'ouvre et s'exporte séparément.
+
+Dans le fil, la carte du document ne fait plus qu'annoncer ce qui vient d'être publié
+et renvoyer vers la colonne.
+
 ## Retoucher, versionner, exporter
 
 Le document n'est pas un point final. « Ajoute une partie sur l'immobilier », « la
@@ -145,21 +162,24 @@ réglages ⚙). Rien de propriétaire : ouvre-les avec n'importe quel éditeur.
 > racine du dossier personnel n'est pas surveillée : aucune boîte de dialogue, jamais.
 > Tu peux quand même pointer la bibliothèque vers `~/Documents` dans les réglages.
 
-```markdown
----
-titre: "Situation économique de Londres — état des lieux, août 2026"
-sujet: "rapport complet sur l'économie londonienne"
-cree_le: 2026-08-29
-mis_a_jour_le: 2026-08-29
-sources: 9
-version: 3
-modele: claude-opus-5
-redige_par: "Assistant Rédacteur"
----
+Un document s'ouvre sur ce qu'il dit, pas sur sa fiche technique : titre, résumé,
+sommaire. Les informations de production ferment le fichier.
 
+```markdown
 # Situation économique de Londres — état des lieux, août 2026
 
+Londres traverse une phase de croissance inégale : la finance tire le PIB pendant
+que l'emploi se dégrade à l'est. Ce document fait le point au 29 août 2026.
+
+## Sommaire
+
+- [En bref](#en-bref)
+- [Le marché du travail se tend](#le-marché-du-travail-se-tend)
+  - [Les services financiers](#les-services-financiers)
+- [Ce que les sources ne disent pas](#ce-que-les-sources-ne-disent-pas)
+
 ## En bref
+
 - Croissance de **1,4 %** au T2 2026 ([ONS](https://…)), portée à 70 % par la finance.
 …
 
@@ -173,7 +193,22 @@ redige_par: "Assistant Rédacteur"
 1. **GDP, UK regions and countries** — ONS — publié le 11 juin 2026
    <https://www.ons.gov.uk/…>
    *consultée le 29 août 2026*
+
+---
+
+## À propos de ce document
+
+- **Version 3** — mise à jour le 29 août 2026
+- Créé le 21 août 2026
+- 9 sources consultées
+- Rédigé par l'Assistant Rédacteur (claude-opus-5)
+
+<!-- assistant-redacteur: {"titre":"…","version":3,"sources":9,…} -->
 ```
+
+Le **sommaire** est composé par l'application à partir des titres réellement présents :
+une table des matières ne peut donc pas mentir. Le **commentaire final** est invisible
+à la lecture et sert à l'app à retrouver la version d'un document sans le relire.
 
 La section « Ce que les sources ne disent pas » n'est pas décorative : c'est là que
 se rangent les trous, les chiffres périmés et les contradictions non tranchées.

@@ -7,7 +7,6 @@ const input = document.getElementById('input')
 const sendBtn = document.getElementById('btn-send')
 const statusLine = document.getElementById('status-line')
 const panneauReglages = document.getElementById('settings')
-const panneauBiblio = document.getElementById('biblio')
 const modelSelect = document.getElementById('model')
 const profondeurSelect = document.getElementById('profondeur')
 const langueSelect = document.getElementById('langue')
@@ -354,55 +353,15 @@ function carteDocument(d) {
     `${d.sources_citees || 0} source${(d.sources_citees || 0) > 1 ? 's' : ''}`,
     version > 1 ? `version ${version}` : 'nouveau document',
   ].join(' · ')))
-  carte.appendChild(el('div', 'f', d.nom))
-
-  const btns = el('div', 'btns')
-  const ouvrir = el('button', 'primary', 'Ouvrir')
-  ouvrir.addEventListener('click', () => api.docs.open(d.nom))
-  const exporter = el('button', null, 'Exporter…')
-  exporter.addEventListener('click', () => api.docs.export(d.nom))
-  const finder = el('button', null, 'Dans le Finder')
-  finder.addEventListener('click', () => api.docs.reveal(d.nom))
-  btns.append(ouvrir, exporter, finder)
-
-  if (version > 1) {
-    const liste = el('div', 'versions hidden')
-    const bascule = el('button', null, 'Versions')
-    bascule.addEventListener('click', async () => {
-      const ouverte = !liste.classList.toggle('hidden')
-      bascule.textContent = ouverte ? 'Masquer les versions' : 'Versions'
-      if (ouverte && !liste.childElementCount) remplirVersions(liste, d.nom)
-    })
-    btns.appendChild(bascule)
-    carte.appendChild(btns)
-    carte.appendChild(liste)
-  } else {
-    carte.appendChild(btns)
-  }
+  // Ni bouton ni chemin de fichier ici : le document s'ouvre depuis la colonne
+  // de droite, où toutes ses versions sont réunies au même endroit.
+  const vers = el('button', 'vers-doc', '→ dans les documents, à droite')
+  vers.addEventListener('click', () => {
+    docsVisible(true)
+    surlignerDocument(d.nom)
+  })
+  carte.appendChild(vers)
   return carte
-}
-
-async function remplirVersions(hote, nom) {
-  hote.replaceChildren(el('div', 'attente-v', 'Chargement…'))
-  const versions = await api.docs.versions(nom)
-  hote.replaceChildren()
-  if (!versions.length) {
-    hote.appendChild(el('div', 'attente-v', 'Aucune version archivée.'))
-    return
-  }
-  for (const v of versions) {
-    const ligne = el('div', `version${v.courante ? ' courante' : ''}`)
-    const t = el('div', 'vt', `v${v.numero}${v.courante ? ' — en place' : ''}`)
-    const m = el('div', 'vm', `${v.mots.toLocaleString('fr-FR')} mots · ${v.sources} source${v.sources > 1 ? 's' : ''} · ${v.date}`)
-    const infos = el('div', 'vi')
-    infos.append(t, m)
-    const ouvrir = el('button', null, 'Ouvrir')
-    ouvrir.addEventListener('click', () => (v.courante ? api.docs.open(nom) : api.docs.openVersion(nom, v.numero)))
-    const exporter = el('button', null, 'Exporter…')
-    exporter.addEventListener('click', () => api.docs.export(nom, v.courante ? undefined : v.numero))
-    ligne.append(infos, ouvrir, exporter)
-    hote.appendChild(ligne)
-  }
 }
 
 function addDocument(evt) {
@@ -411,6 +370,86 @@ function addDocument(evt) {
   currentSources = null
   add(carteDocument(evt.document))
   scrollDown(true)
+}
+
+// ---------------------------------------------------- colonne des documents
+
+function docsVisible(v) {
+  document.body.classList.toggle('docs-cachee', !v)
+  api.setConfig({ docsVisible: v })
+}
+
+function surlignerDocument(nom) {
+  const fiche = listeDocs.querySelector(`[data-nom="${CSS.escape(nom)}"]`)
+  if (!fiche) return
+  fiche.scrollIntoView({ block: 'nearest' })
+  fiche.classList.add('recent')
+}
+
+/** Les versions d'un document, la plus récente en tête. */
+async function remplirVersions(hote, nom) {
+  hote.replaceChildren(el('div', 'vide', 'Chargement…'))
+  const versions = await api.docs.versions(nom)
+  hote.replaceChildren()
+  for (const v of versions) {
+    const ligne = el('div', `vligne${v.courante ? ' courante' : ''}`)
+    ligne.appendChild(el('span', 'vn', `v${v.numero}`))
+    const meta = el('span', 'vd', `${v.mots.toLocaleString('fr-FR')} mots`)
+    meta.title = `${v.date} · ${v.sources} source${v.sources > 1 ? 's' : ''}`
+    ligne.appendChild(meta)
+    const ouvrir = el('button', null, 'Ouvrir')
+    ouvrir.addEventListener('click', () => (v.courante ? api.docs.open(nom) : api.docs.openVersion(nom, v.numero)))
+    const exporter = el('button', null, '↧')
+    exporter.title = 'Exporter cette version'
+    exporter.addEventListener('click', () => api.docs.export(nom, v.courante ? undefined : v.numero))
+    ligne.append(ouvrir, exporter)
+    hote.appendChild(ligne)
+  }
+}
+
+function ficheDocument(d) {
+  const fiche = el('div', 'doc-fiche')
+  fiche.dataset.nom = d.nom
+  fiche.appendChild(el('div', 't', d.titre))
+
+  const meta = el('div', 'm')
+  if (d.version > 1) meta.appendChild(el('span', 'v', `v${d.version}`))
+  meta.appendChild(el('span', null, d.mis_a_jour_le))
+  meta.appendChild(el('span', null, `${d.mots.toLocaleString('fr-FR')} mots`))
+  meta.appendChild(el('span', null, `${d.sources} source${d.sources > 1 ? 's' : ''}`))
+  fiche.appendChild(meta)
+
+  const actions = el('div', 'actions-doc')
+  const ouvrir = el('button', 'primary', 'Ouvrir')
+  ouvrir.addEventListener('click', () => api.docs.open(d.nom))
+  const exporter = el('button', 'icone', '↧')
+  exporter.title = 'Exporter une copie…'
+  exporter.addEventListener('click', () => api.docs.export(d.nom))
+  const finder = el('button', 'icone', '⤴')
+  finder.title = 'Révéler dans le Finder'
+  finder.addEventListener('click', () => api.docs.reveal(d.nom))
+  const sup = el('button', 'icone', '×')
+  sup.title = 'Supprimer'
+  sup.addEventListener('click', async () => {
+    documents = await api.docs.remove(d.nom)
+    renderDocuments()
+  })
+  actions.append(ouvrir, exporter, finder, sup)
+
+  if (d.version > 1) {
+    const vlist = el('div', 'vlist hidden')
+    const plier = el('button', 'plier', `${d.version} versions ▾`)
+    plier.addEventListener('click', () => {
+      const ouverte = !vlist.classList.toggle('hidden')
+      plier.textContent = `${d.version} versions ${ouverte ? '▴' : '▾'}`
+      if (ouverte && !vlist.childElementCount) remplirVersions(vlist, d.nom)
+    })
+    actions.appendChild(plier)
+    fiche.append(actions, vlist)
+  } else {
+    fiche.appendChild(actions)
+  }
+  return fiche
 }
 
 // --------------------------------------------------------------- permissions
@@ -572,16 +611,16 @@ sendBtn.addEventListener('click', () => {
 
 document.getElementById('btn-new').addEventListener('click', nouvelleConversation)
 
-const bascule = (panneau, autre) => {
-  autre.classList.add('hidden')
-  panneau.classList.toggle('hidden')
-}
-document.getElementById('btn-settings').addEventListener('click', () => bascule(panneauReglages, panneauBiblio))
+document.getElementById('btn-settings').addEventListener('click', () => panneauReglages.classList.toggle('hidden'))
 document.getElementById('btn-biblio').addEventListener('click', async () => {
-  documents = await api.docs.list()
-  renderDocuments()
-  bascule(panneauBiblio, panneauReglages)
+  const montrer = document.body.classList.contains('docs-cachee')
+  docsVisible(montrer)
+  if (montrer) {
+    documents = await api.docs.list()
+    renderDocuments()
+  }
 })
+document.getElementById('btn-ouvrir-dossier').addEventListener('click', () => api.openBibliotheque())
 document.getElementById('btn-ouvrir-biblio').addEventListener('click', () => api.openBibliotheque())
 document.getElementById('btn-choisir').addEventListener('click', async () => {
   const res = await api.choisirBibliotheque()
@@ -609,33 +648,10 @@ document.addEventListener('click', (e) => {
 function renderDocuments() {
   listeDocs.replaceChildren()
   if (!documents.length) {
-    listeDocs.appendChild(el('div', 'vide', 'Aucun document pour l\'instant. Demande-moi un sujet.'))
+    listeDocs.appendChild(el('div', 'vide', 'Aucun document pour l\'instant. Demande-moi un sujet : le document apparaîtra ici, avec ses versions.'))
     return
   }
-  for (const d of documents) {
-    const ligne = el('div', 'doc-ligne')
-    const infos = el('div', 'infos')
-    infos.appendChild(el('div', 't', d.titre))
-    const bouts = [d.mis_a_jour_le, `${d.mots.toLocaleString('fr-FR')} mots`, `${d.sources} source${d.sources > 1 ? 's' : ''}`]
-    if (d.version > 1) bouts.push(`v${d.version}`)
-    infos.appendChild(el('div', 'm', bouts.join(' · ')))
-    infos.addEventListener('click', () => api.docs.open(d.nom))
-    ligne.appendChild(infos)
-    const exp = el('button', 'exp', '↧')
-    exp.title = `Exporter ${d.nom}`
-    exp.addEventListener('click', (e) => { e.stopPropagation(); api.docs.export(d.nom) })
-    ligne.appendChild(exp)
-    const sup = el('button', 'sup', '×')
-    sup.title = `Supprimer ${d.nom}`
-    sup.addEventListener('click', async (e) => {
-      e.stopPropagation()
-      documents = await api.docs.remove(d.nom)
-      renderDocuments()
-      statusBibliotheque()
-    })
-    ligne.appendChild(sup)
-    listeDocs.appendChild(ligne)
-  }
+  for (const d of documents) listeDocs.appendChild(ficheDocument(d))
 }
 
 // ------------------------------------------------------- fils enregistrés
@@ -896,6 +912,9 @@ api.onEvent((evt) => {
     case 'basculer-barre':
       barreVisible(document.body.classList.contains('barre-cachee'))
       break
+    case 'basculer-docs':
+      docsVisible(document.body.classList.contains('docs-cachee'))
+      break
     case 'error':
       finishText(); finishThinking()
       addNote(evt.message, 'err')
@@ -916,6 +935,7 @@ cheminBiblio.textContent = bibliotheque
 documents = state.documents || []
 conversations = state.conversations || []
 document.body.classList.toggle('barre-cachee', state.config.barreVisible === false)
+document.body.classList.toggle('docs-cachee', state.config.docsVisible === false)
 renderDocuments()
 renderConversations()
 statusBibliotheque()

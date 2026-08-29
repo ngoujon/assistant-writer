@@ -38,10 +38,16 @@ const SCENARIO = [
   { evt: { k: 'result', isError: false, costUsd: 0.21, durationMs: 94000 } },
 ]
 
+// Filet : un aperçu qui se bloque doit échouer, pas attendre indéfiniment.
+setTimeout(() => {
+  console.log('APERÇU ÉCHEC — bloqué au-delà de 90 s')
+  app.exit(1)
+}, 90000).unref?.()
+
 app.whenReady().then(async () => {
   if (process.env.THEME) nativeTheme.themeSource = process.env.THEME
   const win = new BrowserWindow({
-    width: 760, height: 840, show: false,
+    width: 980, height: 840, show: false,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 14, y: 18 },
     backgroundColor: process.env.THEME === 'dark' ? '#16181e' : '#f8fafd',
@@ -53,6 +59,10 @@ app.whenReady().then(async () => {
     if (d.level === 'error' || d.level === 3) erreurs.push(d.message)
   })
   win.webContents.on('render-process-gone', (_e, d) => erreurs.push(`renderer perdu : ${d.reason}`))
+  // Une erreur dans l'interface doit se voir tout de suite, pas à la fin.
+  win.webContents.on('console-message', (d) => {
+    if (d.level === 'error' || d.level === 3) console.log('CONSOLE:', String(d.message).slice(0, 300))
+  })
   await win.loadFile(path.join(root, 'src', 'renderer', 'index.html'))
 
   const taper = (texte) => win.webContents.executeJavaScript(
@@ -72,18 +82,25 @@ app.whenReady().then(async () => {
   }
 
   const carteDoc = await win.webContents.executeJavaScript(
-    "!!document.querySelector('.doc-carte .btns button.primary')",
+    "!!document.querySelector('.doc-carte .vers-doc')",
   )
-  const boutonExport = await win.webContents.executeJavaScript(
-    "[...document.querySelectorAll('.doc-carte .btns button')].some(b => b.textContent === 'Exporter…')",
+  // La carte du fil n'ouvre plus rien elle-même.
+  const carteSansActions = await win.webContents.executeJavaScript(
+    "!document.querySelector('.doc-carte .btns')",
   )
-  // L'historique des versions s'ouvre depuis la carte.
+  const ficheOuvrir = await win.webContents.executeJavaScript(
+    "[...document.querySelectorAll('.doc-fiche .actions-doc button')].some(b => b.textContent === 'Ouvrir')",
+  )
+  // L'historique s'ouvre depuis la colonne de droite, pas depuis la carte.
   await win.webContents.executeJavaScript(
-    "[...document.querySelectorAll('.doc-carte .btns button')].find(b => b.textContent === 'Versions')?.click()",
+    "document.querySelector('.doc-fiche .plier')?.click()",
   )
   await new Promise((r) => setTimeout(r, 320))
   const versionsListees = await win.webContents.executeJavaScript(
-    "document.querySelectorAll('.doc-carte .versions .version').length",
+    "document.querySelectorAll('.doc-fiche .vlist .vligne').length",
+  )
+  const premiereVersion = await win.webContents.executeJavaScript(
+    "document.querySelector('.doc-fiche .vlist .vligne .vn')?.textContent || ''",
   )
   const puces = await win.webContents.executeJavaScript("document.querySelectorAll('.puce-source').length")
 
@@ -172,11 +189,9 @@ app.whenReady().then(async () => {
   await win.webContents.executeJavaScript("document.getElementById('btn-barre').click()")
   await new Promise((r) => setTimeout(r, 260))
 
-  // La bibliothèque : le panneau doit lister les documents.
-  await win.webContents.executeJavaScript("document.getElementById('btn-biblio').click()")
-  await new Promise((r) => setTimeout(r, 200))
+  // La colonne des documents est là dès l'ouverture.
   const docsListes = await win.webContents.executeJavaScript(
-    "document.getElementById('biblio').classList.contains('hidden') ? 0 : document.querySelectorAll('#liste-docs .doc-ligne').length",
+    "document.body.classList.contains('docs-cachee') ? 0 : document.querySelectorAll('#liste-docs .doc-fiche').length",
   )
 
   // Raccourci clavier : « esc » doit refuser la carte en attente.
@@ -187,12 +202,13 @@ app.whenReady().then(async () => {
 
   console.log('reprise proposée      :', boutonReprise || 'AUCUNE', '| dans la liste :', repriseListe)
   console.log('note en anglais       :', noteAnglaise ? 'OUI (problème)' : 'non')
-  console.log('versions affichées    :', versionsListees, '| bouton export :', boutonExport)
+  console.log('versions (colonne)   :', versionsListees, '| la plus récente en tête :', premiereVersion)
+  console.log('carte sans actions   :', carteSansActions, '| fiche « Ouvrir » :', ficheOuvrir)
   console.log('états des fils        :', badgesEtat || 'aucun')
   console.log('conversations listées:', convsListees, '| active :', convActive, '| filtrées « bois » :', convsFiltrees)
   console.log('barre repliable      :', barreRepliee)
   console.log('puces de sources     :', puces)
-  console.log('carte du document    :', carteDoc)
+  console.log('carte du document    :', carteDoc, '(renvoi vers la colonne)')
   console.log('envoi pendant travail:', envoyePendant ? `ok, ${envoyePendant} messages` : 'BLOQUÉ')
   console.log('marqueur retiré      :', marqueurRetire)
   console.log('blocs rendus         :', rendus)
@@ -204,8 +220,14 @@ app.whenReady().then(async () => {
   const ok = rendus > 6 && puces === 3 && carteDoc && envoyePendant === 2 && marqueurRetire
     && docsListes === 2 && apres === 1 && !erreurs.length
     && convsListees === 3 && convActive === 0 && convsFiltrees === 1 && barreRepliee
-    && versionsListees === 3 && boutonExport && badgesEtat === 'en cours/inachevée/en attente'
+    && versionsListees === 3 && premiereVersion === 'v3' && carteSansActions && ficheOuvrir
+    && badgesEtat === 'en cours/inachevée/en attente'
     && /Reprendre/.test(boutonReprise) && !noteAnglaise && repriseListe === 1
   console.log(ok ? 'APERÇU OK' : 'APERÇU ÉCHEC')
   app.exit(ok ? 0 : 1)
+})
+
+process.on('unhandledRejection', (err) => {
+  console.log('APERÇU ÉCHEC — le scénario a levé :', String(err?.message || err).slice(0, 300))
+  app.exit(1)
 })
