@@ -16,6 +16,7 @@ const cheminBiblio = document.getElementById('chemin-biblio')
 const barre = document.getElementById('barre')
 const recherche = document.getElementById('recherche')
 const listeConv = document.getElementById('liste-conv')
+const docsBarre = document.getElementById('docs-barre')
 
 let busy = false
 let currentText = null
@@ -26,6 +27,9 @@ let documents = []
 let conversations = []
 let convCourante = null
 let bibliotheque = ''
+let porteeDocs = 'conversation'
+/** Le total de la bibliothèque : la colonne, elle, ne montre qu'un fil à la fois. */
+let totalDocs = 0
 const permsEnAttente = []
 /** Messages écrits pendant qu'il travaillait, pas encore repris par l'agent. */
 let enFile = []
@@ -372,7 +376,70 @@ function addDocument(evt) {
   scrollDown(true)
 }
 
+// ------------------------------------------- largeur des colonnes latérales
+//
+// Une colonne trop étroite pour lire un titre, ou trop large pour laisser
+// respirer le fil, ça dépend du moment et du sujet. On la tire à la main, et la
+// largeur choisie est retenue.
+
+const LARGEUR_MIN = 170
+
+function appliquerLargeur(colonne, px) {
+  if (px) colonne.style.flex = `0 0 ${px}px`
+  else colonne.style.flex = ''
+}
+
+function poser(poignee, colonne, cote, cle) {
+  poignee.addEventListener('pointerdown', (e) => {
+    e.preventDefault()
+    poignee.setPointerCapture(e.pointerId)
+    poignee.classList.add('glisse')
+    document.body.classList.add('redimensionne')
+    const depart = e.clientX
+    const initiale = colonne.offsetWidth
+    let derniere = initiale
+
+    const bouge = (ev) => {
+      const delta = cote === 'gauche' ? ev.clientX - depart : depart - ev.clientX
+      // On garde toujours de quoi lire le fil : au moins un quart de la fenêtre.
+      const max = Math.max(LARGEUR_MIN, Math.round(window.innerWidth * 0.45))
+      derniere = Math.min(max, Math.max(LARGEUR_MIN, initiale + delta))
+      appliquerLargeur(colonne, derniere)
+    }
+    const fin = () => {
+      poignee.removeEventListener('pointermove', bouge)
+      poignee.removeEventListener('pointerup', fin)
+      poignee.classList.remove('glisse')
+      document.body.classList.remove('redimensionne')
+      api.setConfig({ [cle]: derniere })
+    }
+    poignee.addEventListener('pointermove', bouge)
+    poignee.addEventListener('pointerup', fin)
+  })
+
+  // Double-clic : retour au tiers de fenêtre.
+  poignee.addEventListener('dblclick', () => {
+    appliquerLargeur(colonne, null)
+    api.setConfig({ [cle]: null })
+  })
+}
+
+poser(document.getElementById('poignee-barre'), barre, 'gauche', 'largeurBarre')
+poser(document.getElementById('poignee-docs'), docsBarre, 'droite', 'largeurDocs')
+
 // ---------------------------------------------------- colonne des documents
+
+async function changerPortee(portee) {
+  porteeDocs = portee
+  document.getElementById('portee-conv').classList.toggle('actif', portee === 'conversation')
+  document.getElementById('portee-tous').classList.toggle('actif', portee === 'tous')
+  api.setConfig({ porteeDocs: portee })
+  documents = await api.docs.list(portee)
+  renderDocuments()
+}
+
+document.getElementById('portee-conv').addEventListener('click', () => changerPortee('conversation'))
+document.getElementById('portee-tous').addEventListener('click', () => changerPortee('tous'))
 
 function docsVisible(v) {
   document.body.classList.toggle('docs-cachee', !v)
@@ -554,8 +621,8 @@ function setStatus(text, kind) {
 }
 
 function statusBibliotheque() {
-  setStatus(documents.length
-    ? `${documents.length} document${documents.length > 1 ? 's' : ''} en bibliothèque`
+  setStatus(totalDocs
+    ? `${totalDocs} document${totalDocs > 1 ? 's' : ''} en bibliothèque`
     : 'Bibliothèque vide', 'ok')
 }
 
@@ -621,7 +688,7 @@ document.getElementById('btn-biblio').addEventListener('click', async () => {
   const montrer = document.body.classList.contains('docs-cachee')
   docsVisible(montrer)
   if (montrer) {
-    documents = await api.docs.list()
+    documents = await api.docs.list(porteeDocs)
     renderDocuments()
   }
 })
@@ -653,7 +720,9 @@ document.addEventListener('click', (e) => {
 function renderDocuments() {
   listeDocs.replaceChildren()
   if (!documents.length) {
-    listeDocs.appendChild(el('div', 'vide', 'Aucun document pour l\'instant. Demande-moi un sujet : le document apparaîtra ici, avec ses versions.'))
+    listeDocs.appendChild(el('div', 'vide', porteeDocs === 'tous'
+      ? 'La bibliothèque est vide. Demande-moi un sujet.'
+      : 'Aucun document dans cette conversation. Demande-moi un sujet : il apparaîtra ici, avec ses versions.'))
     return
   }
   for (const d of documents) listeDocs.appendChild(ficheDocument(d))
@@ -858,6 +927,8 @@ api.onEvent((evt) => {
       break
     case 'documents':
       documents = evt.documents
+      if (evt.portee) porteeDocs = evt.portee
+      if (typeof evt.total === 'number') totalDocs = evt.total
       renderDocuments()
       statusBibliotheque()
       break
@@ -938,9 +1009,15 @@ ouvrirAuto.checked = state.config.ouvrirAuto !== false
 bibliotheque = state.bibliotheque
 cheminBiblio.textContent = bibliotheque
 documents = state.documents || []
+totalDocs = state.totalDocuments || 0
 conversations = state.conversations || []
 document.body.classList.toggle('barre-cachee', state.config.barreVisible === false)
 document.body.classList.toggle('docs-cachee', state.config.docsVisible === false)
+appliquerLargeur(barre, state.config.largeurBarre)
+appliquerLargeur(docsBarre, state.config.largeurDocs)
+porteeDocs = state.config.porteeDocs || 'conversation'
+document.getElementById('portee-tous').classList.toggle('actif', porteeDocs === 'tous')
+document.getElementById('portee-conv').classList.toggle('actif', porteeDocs !== 'tous')
 renderDocuments()
 renderConversations()
 statusBibliotheque()

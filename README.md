@@ -130,7 +130,13 @@ La fenêtre fait **un tiers de l'écran** et se partage en **trois colonnes éga
 | **Centre** | le fil : ce que tu demandes, ce qu'il lit, ce qu'il publie |
 | **Droite** (`⌘D`) | les **documents**, du plus récent au plus ancien, avec leurs versions |
 
-Replier une colonne latérale rend sa place aux deux autres.
+Replier une colonne latérale rend sa place aux deux autres. Les deux **poignées**
+entre les colonnes se tirent à la souris pour changer leur largeur — la largeur
+choisie est retenue, un double-clic sur la poignée revient au tiers.
+
+**Un document appartient à la conversation qui l'a écrit.** La colonne ne montre que
+ceux du fil ouvert ; l'onglet **Tous** ouvre toute la bibliothèque quand tu cherches
+un vieux document. Le compteur de la barre de titre, lui, compte toujours l'ensemble.
 
 Le document ne s'ouvre plus tout seul quand il est écrit. Il apparaît dans la colonne
 de droite avec, en toutes lettres : **Ouvrir**, **Exporter…**, puis **Dans le Finder**,

@@ -198,7 +198,32 @@ app.whenReady().then(async () => {
   await win.webContents.executeJavaScript("document.getElementById('btn-barre').click()")
   await new Promise((r) => setTimeout(r, 260))
 
-  // La colonne des documents est là dès l'ouverture.
+  // Les documents montrés sont ceux du fil ; « Tous » ouvre la bibliothèque.
+  const porteeDepart = await win.webContents.executeJavaScript(
+    "document.querySelector('.docs-barre .onglet.actif')?.textContent || ''",
+  )
+  await win.webContents.executeJavaScript("document.getElementById('portee-tous').click()")
+  await new Promise((r) => setTimeout(r, 320))
+  const docsTous = await win.webContents.executeJavaScript("document.querySelectorAll('#liste-docs .doc-fiche').length")
+  await win.webContents.executeJavaScript("document.getElementById('portee-conv').click()")
+  await new Promise((r) => setTimeout(r, 320))
+
+  // Les poignées : on tire la colonne de gauche, elle garde sa nouvelle largeur.
+  const largeurAvant = await win.webContents.executeJavaScript("document.getElementById('barre').offsetWidth")
+  await win.webContents.executeJavaScript(
+    `(() => {
+       const p = document.getElementById('poignee-barre')
+       const opts = { bubbles: true, pointerId: 1, clientX: 0 }
+       p.setPointerCapture = () => {}
+       p.releasePointerCapture = () => {}
+       p.dispatchEvent(new PointerEvent('pointerdown', { ...opts, clientX: 280 }))
+       p.dispatchEvent(new PointerEvent('pointermove', { ...opts, clientX: 200 }))
+       p.dispatchEvent(new PointerEvent('pointerup', { ...opts, clientX: 200 }))
+     })()`,
+  )
+  await new Promise((r) => setTimeout(r, 200))
+  const largeurApres = await win.webContents.executeJavaScript("document.getElementById('barre').offsetWidth")
+
   const docsListes = await win.webContents.executeJavaScript(
     "document.body.classList.contains('docs-cachee') ? 0 : document.querySelectorAll('#liste-docs .doc-fiche').length",
   )
@@ -213,6 +238,8 @@ app.whenReady().then(async () => {
   console.log('note en anglais       :', noteAnglaise ? 'OUI (problème)' : 'non')
   console.log('versions (colonne)   :', versionsListees, '| la plus récente en tête :', premiereVersion)
   console.log('colonnes (px)        :', largeurs)
+  console.log('portée des documents :', porteeDepart, '| en « Tous » :', docsTous, 'fiches')
+  console.log('poignée de gauche    :', largeurAvant, '→', largeurApres, 'px')
   console.log('carte sans actions   :', carteSansActions)
   console.log('actions du document  :', ficheOuvrir)
   console.log('états des fils        :', badgesEtat || 'aucun')
@@ -233,6 +260,8 @@ app.whenReady().then(async () => {
     && convsListees === 3 && convActive === 0 && convsFiltrees === 1 && barreRepliee
     && versionsListees === 3 && premiereVersion.startsWith('v3') && carteSansActions && ficheOuvrir === 'Ouvrir/Exporter…/Dans le Finder/Supprimer/3 versions ▾'
     && Number(largeurs.split('écart=')[1]) <= 2
+    && porteeDepart === 'Cette conversation' && docsTous === 3
+    && largeurApres < largeurAvant - 50
     && badgesEtat === 'en cours/inachevée/en attente'
     && /Reprendre/.test(boutonReprise) && !noteAnglaise && repriseListe === 1
   console.log(ok ? 'APERÇU OK' : 'APERÇU ÉCHEC')

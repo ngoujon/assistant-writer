@@ -22,9 +22,10 @@ const CONVERSATIONS = [
 
 contextBridge.exposeInMainWorld('redacteur', {
   init: async () => ({
-    config: { model: 'claude-opus-5', profondeur: 'standard', langue: 'français', ouvrirAuto: false, barreVisible: true, docsVisible: true },
+    config: { model: 'claude-opus-5', profondeur: 'standard', langue: 'français', ouvrirAuto: false, barreVisible: true, docsVisible: true, largeurBarre: null, largeurDocs: null, porteeDocs: 'conversation' },
     bibliotheque: '/Users/demo/Assistant Rédacteur',
     documents: DOCUMENTS,
+    totalDocuments: DOCUMENTS.length + 3,
     conversations: CONVERSATIONS,
     version: '1.0.0',
   }),
@@ -42,7 +43,9 @@ contextBridge.exposeInMainWorld('redacteur', {
   },
 
   docs: {
-    list: async () => DOCUMENTS,
+    list: async (portee) => (portee === 'tous' ? DOCUMENTS.concat([
+      { nom: '2026-08-02-autre-sujet.md', titre: "Un document d'une autre conversation", mots: 900, sources: 4, version: 1, mis_a_jour_le: '2026-08-02' },
+    ]) : DOCUMENTS),
     sources: async () => [],
     open: () => {},
     reveal: () => {},

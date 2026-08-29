@@ -26,6 +26,11 @@ const CONFIG_DEFAUT = {
   bibliotheque: null,
   barreVisible: true,
   docsVisible: true,
+  // Largeur des colonnes latérales, en pixels. null = un tiers de la fenêtre.
+  largeurBarre: null,
+  largeurDocs: null,
+  // « conversation » : seuls les documents du fil ouvert. « tous » : la bibliothèque.
+  porteeDocs: 'conversation',
   bounds: null,
   conversation: null,
   promptVersion: 0,
@@ -199,6 +204,28 @@ function viderTampon(convId) {
   if (t) majListe(Conv.ajouter(convId, { k: 'texte', texte: t }))
 }
 
+/**
+ * Les documents à montrer : ceux du fil ouvert, ou toute la bibliothèque.
+ *
+ * Un document appartient à la conversation qui l'a écrit. Voir ceux des autres
+ * fils en travaillant sur un sujet n'aide personne — d'où le tri par défaut.
+ */
+function documentsAffiches(portee = config.porteeDocs, convId = courante?.id) {
+  const tous = listerDocuments()
+  if (portee === 'tous' || !convId) return tous
+  const siens = new Set(Conv.fil(convId)?.documents || [])
+  return tous.filter((d) => siens.has(d.nom))
+}
+
+function diffuserDocuments() {
+  emit({
+    k: 'documents',
+    documents: documentsAffiches(),
+    portee: config.porteeDocs,
+    total: listerDocuments().length,
+  })
+}
+
 /** La liste des fils, chacun portant son état réel : en cours, en attente, en plan. */
 const ETAT_VISIBLE = { travaille: 'en_cours', attend: 'en_attente' }
 
@@ -291,10 +318,13 @@ function routerEvenement(convId, evt) {
   if (evt.k === 'ready' && evt.sessionId) Conv.memoriserSession(convId, evt.sessionId)
   // Le modèle a nommé le fil : on ne recouvre pas un titre posé à la main.
   if (evt.k === 'titre') majListe(Conv.renommer(convId, evt.titre, { manuel: false }))
-  // Un document vient d'être écrit : la bibliothèque suit, quel que soit le fil.
-  if (evt.k === 'document') emit({ k: 'documents', documents: listerDocuments() })
-
   noterEvenement(convId, evt)
+
+  // Le document est rattaché à son fil : la colonne de droite ne bouge que si
+  // c'est ce fil qu'on regarde — ou si on a demandé à voir toute la bibliothèque.
+  if (evt.k === 'document' && (convId === courante?.id || config.porteeDocs === 'tous')) {
+    diffuserDocuments()
+  }
 
   // Le tour est fini : la place se libère et la file avance.
   if (evt.k === 'result' || evt.k === 'interrupted') pool.finDeTour(convId)
@@ -382,6 +412,7 @@ function repriseDe(convId) {
 }
 
 function peindreConversation(evenements) {
+  diffuserDocuments()
   emit({
     k: 'conversation',
     id: courante.id,
@@ -439,9 +470,13 @@ function wireIpc() {
         ouvrirAuto: config.ouvrirAuto,
         barreVisible: config.barreVisible !== false,
         docsVisible: config.docsVisible !== false,
+        largeurBarre: config.largeurBarre,
+        largeurDocs: config.largeurDocs,
+        porteeDocs: config.porteeDocs || 'conversation',
       },
       bibliotheque: P.bibliotheque(),
-      documents: listerDocuments(),
+      documents: documentsAffiches(),
+      totalDocuments: listerDocuments().length,
       conversations: listeConversations(),
       version: app.getVersion(),
     }
@@ -484,7 +519,7 @@ function wireIpc() {
     return listeConversations()
   })
 
-  ipcMain.handle('docs:list', () => listerDocuments())
+  ipcMain.handle('docs:list', (_e, portee) => documentsAffiches(portee))
   ipcMain.handle('docs:versions', (_e, nom) => {
     try { return versionsDocument(nom) } catch { return [] }
   })
@@ -529,11 +564,11 @@ function wireIpc() {
         message: `Supprimer « ${doc.titre} » ?`,
         detail: `${doc.nom} — ${doc.mots} mots. Le fichier part à la corbeille.`,
       })
-      if (response !== 0) return listerDocuments()
+      if (response !== 0) return documentsAffiches()
       await shell.trashItem(doc.chemin).catch(() => supprimerDocument(nom))
     } catch {}
-    const docs = listerDocuments()
-    emit({ k: 'documents', documents: docs })
+    const docs = documentsAffiches()
+    diffuserDocuments()
     return docs
   })
 
@@ -659,7 +694,7 @@ if (!app.requestSingleInstanceLock()) {
       tracer('fenêtre affichée')
       try {
         ensureBibliotheque()
-        emit({ k: 'documents', documents: listerDocuments() })
+        diffuserDocuments()
       } catch {}
 
       resumeInterdit = config.promptVersion !== PROMPT_VERSION

@@ -1026,3 +1026,52 @@ body.docs-cachee .docs-barre {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* ------------------------------------------------ poignées de redimensionnement */
+
+.poignee {
+  flex: 0 0 6px;
+  cursor: col-resize;
+  position: relative;
+  z-index: 2;
+}
+.poignee::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.12s;
+}
+.poignee:hover::after, .poignee.glisse::after { background: var(--accent); }
+body.barre-cachee #poignee-barre, body.docs-cachee #poignee-docs { display: none; }
+/* Pendant le glissement, rien d'autre ne réagit au curseur. */
+body.redimensionne { cursor: col-resize; user-select: none; }
+body.redimensionne .corps * { pointer-events: none; }
+
+/* -------------------------------------------- portée de la colonne des documents */
+
+.docs-barre .portee { display: flex; gap: 3px; flex: 0 0 auto; padding-bottom: 2px; }
+.docs-barre .onglet {
+  flex: 1 1 auto;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: 7px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.docs-barre .onglet:hover { color: var(--text); }
+.docs-barre .onglet.actif {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  font-weight: 580;
+}
