@@ -24,9 +24,6 @@ const CONFIG_DEFAUT = {
   // « prudent » : une carte s'ouvre avant ce qui sort de la bibliothèque et
   // avant un effacement.
   autonomie: 'auto',
-  // Ouvrir le document dans l'app Markdown dès qu'il est écrit. Éteint : les
-  // documents s'ouvrent depuis le panneau de droite, quand on le décide.
-  ouvrirAuto: false,
   bibliotheque: null,
   barreVisible: true,
   docsVisible: true,
@@ -76,6 +73,9 @@ function loadConfig() {
   config.elargieBarre = true
   config.elargieDocs = true
   config.largeurTiers = true
+  // Réglage retiré : un document ne s'ouvre plus jamais tout seul. On efface la
+  // clé, sinon un ancien « true » enregistré continuerait de vivre sa vie.
+  delete config.ouvrirAuto
   // Des dimensions enregistrées incomplètes donneraient une fenêtre minuscule.
   if (config.bounds && !(config.bounds.width > 0 && config.bounds.height > 0)) {
     config.bounds = {
@@ -472,7 +472,6 @@ function wireIpc() {
         profondeur: config.profondeur,
         langue: config.langue,
         autonomie: config.autonomie || 'auto',
-        ouvrirAuto: config.ouvrirAuto,
         barreVisible: config.barreVisible !== false,
         docsVisible: config.docsVisible !== false,
         largeurBarre: config.largeurBarre,

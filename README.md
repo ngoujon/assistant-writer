@@ -134,12 +134,14 @@ Replier une colonne latérale rend sa place aux deux autres. Les deux **poignée
 entre les colonnes se tirent à la souris pour changer leur largeur — la largeur
 choisie est retenue, un double-clic sur la poignée revient au tiers.
 
+**Un document ne s'ouvre jamais tout seul** — ni à la publication, ni sur initiative
+de l'assistant. Il apparaît dans la colonne, tu l'ouvres quand tu veux.
+
 **Un document appartient à la conversation qui l'a écrit.** La colonne ne montre que
 ceux du fil ouvert ; l'onglet **Tous** ouvre toute la bibliothèque quand tu cherches
 un vieux document. Le compteur de la barre de titre, lui, compte toujours l'ensemble.
 
-Le document ne s'ouvre plus tout seul quand il est écrit. Il apparaît dans la colonne
-de droite avec, en toutes lettres : **Ouvrir**, **Exporter…**, puis **Dans le Finder**,
+Chaque document affiche, en toutes lettres : **Ouvrir**, **Exporter…**, puis **Dans le Finder**,
 **Supprimer**, et **« 3 versions ▾ »** qui déplie l'historique — **la plus récente en
 tête**, chacune avec son propre *Ouvrir* et son *Exporter*.
 
@@ -250,7 +252,6 @@ se rangent les trous, les chiffres périmés et les contradictions non tranchée
 | **Autonomie** | `Il agit seul` (défaut) · `Me demander avant les actions sensibles` |
 | **Profondeur** | `Note` ~1 000 mots / 3-5 sources · `Document` ~2 500 mots / 6-10 · `Dossier` ~5 000 mots / 12+ |
 | **Langue** | français ou anglais |
-| **Ouvrir une fois écrit** | ouvre le `.md` dans ton éditeur dès qu'il est prêt |
 | **Bibliothèque** | le dossier où atterrissent les documents |
 
 Changer la profondeur ou la langue repart sur une conversation neuve : ces règles

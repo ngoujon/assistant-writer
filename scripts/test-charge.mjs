@@ -49,7 +49,7 @@ const session = new AgentSession({
     console.log(`[${min()}] VALID. refusée pour ${req.toolName}`)
     return { behavior: 'deny', message: 'test automatique' }
   },
-  getConfig: () => ({ model: 'claude-opus-5', profondeur: 'standard', langue: 'français', ouvrirAuto: false }),
+  getConfig: () => ({ model: 'claude-opus-5', profondeur: 'standard', langue: 'français' }),
   ouvrirFichier: () => {},
 })
 

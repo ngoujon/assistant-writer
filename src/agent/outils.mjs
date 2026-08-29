@@ -147,7 +147,8 @@ export function serveurRedacteur(contexte = {}) {
         const corps = sans_source && !ids.length ? `${BANNIERE_SANS_SOURCE}\n\n${markdown}` : markdown
         const info = ecrireDocument({ titre, sujet, markdown: corps, sources: ids, nom: cible, modele: modele() })
         signaler({ k: 'document', document: info })
-        if (contexte.ouvrirAuto?.()) ouvrir(info.chemin)
+        // On n'ouvre jamais le fichier de soi-même : Nicolas le lit quand il
+        // décide de le lire, depuis la colonne des documents.
         return {
           ...info,
           note: info.remplace

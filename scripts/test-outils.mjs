@@ -30,7 +30,6 @@ function serveur(reponse) {
     confirmer: async (d) => { demandes.push(d); return reponse },
     signaler: (e) => signaux.push(e),
     modele: () => 'claude-opus-5',
-    ouvrirAuto: () => false,
   })
   const outils = srv.instance._registeredTools
   const appeler = async (nom, args) => {

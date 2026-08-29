@@ -127,7 +127,6 @@ export class AgentSession {
           ouvrir: (chemin) => this.ouvrirFichier(chemin),
           titrer: (titre) => this.emit({ k: 'titre', titre }),
           corbeille: (chemin) => this.envoyerCorbeille(chemin),
-          ouvrirAuto: () => this.getConfig()?.ouvrirAuto !== false,
           modele: () => this.getConfig()?.model,
         }),
       },
