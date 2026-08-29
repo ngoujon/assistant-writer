@@ -157,6 +157,17 @@ export function titreDepuisTexte(texte) {
   return `${(espace > 30 ? coupe.slice(0, espace) : coupe).trim()}…`
 }
 
+/**
+ * Les noms de fichiers des documents écrits par ce fil.
+ *
+ * À ne pas confondre avec le `documents` du résumé, qui en est le **nombre** :
+ * ce sont deux réponses à deux questions différentes, et les mélanger casse.
+ */
+export function documentsDe(id) {
+  const c = lire(id)
+  return Array.isArray(c?.documents) ? [...c.documents] : []
+}
+
 /** Le fil complet, prêt à être rejoué par l'interface. */
 export function fil(id) {
   const c = lire(id)

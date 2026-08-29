@@ -40,6 +40,14 @@ assert.equal(C.lister('tokyo').length, 0)
 assert.equal(C.lister('ons.gov.uk')[0].id, a.id, 'on retrouve un fil par une source lue')
 assert.equal(C.lister('sources primaires')[0].id, a.id, 'et par ce qui a été répondu')
 
+// 3 bis. Le résumé compte les documents ; documentsDe les nomme. Confondre les
+//        deux faisait planter l'ouverture d'un fil.
+assert.equal(C.lister().find((x) => x.id === a.id).documents, 1, 'le résumé donne un nombre')
+assert.deepEqual(C.documentsDe(a.id), ['2026-08-29-londres.md'], 'documentsDe donne la liste')
+assert.equal(typeof C.fil(a.id).documents, 'number', 'le fil porte le même compte que le résumé')
+assert.deepEqual(C.documentsDe('cinconnu'), [], 'un fil inconnu ne rend pas null')
+assert.doesNotThrow(() => new Set(C.documentsDe(a.id)))
+
 // 4. Le fil se rejoue à l'identique.
 const fil = C.fil(a.id)
 assert.equal(fil.evenements.length, 4)

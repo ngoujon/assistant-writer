@@ -217,7 +217,7 @@ function viderTampon(convId) {
 function documentsAffiches(portee = config.porteeDocs, convId = courante?.id) {
   const tous = listerDocuments()
   if (portee === 'tous' || !convId) return tous
-  const siens = new Set(Conv.fil(convId)?.documents || [])
+  const siens = new Set(Conv.documentsDe(convId))
   return tous.filter((d) => siens.has(d.nom))
 }
 
@@ -690,7 +690,16 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     process.on('unhandledRejection', (err) => {
+      tracer('promesse non rattrapée', String(err?.stack || err?.message || err).slice(0, 800))
       emit({ k: 'error', message: `Agent indisponible : ${String(err?.message || err)}` })
+      emit({ k: 'status', state: 'idle' })
+    })
+
+    // Un bogue dans l'application ne doit pas la laisser à moitié démarrée sans
+    // rien dire : on l'écrit au journal et on l'affiche dans le fil.
+    process.on('uncaughtException', (err) => {
+      tracer('exception non rattrapée', String(err?.stack || err?.message || err).slice(0, 900))
+      emit({ k: 'error', message: `Erreur interne : ${String(err?.message || err)}` })
       emit({ k: 'status', state: 'idle' })
     })
 
