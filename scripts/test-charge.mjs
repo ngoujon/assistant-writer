@@ -17,8 +17,14 @@ process.env.REDACTEUR_DATA_DIR = path.join(bac, 'donnees')
 process.env.REDACTEUR_BIBLIOTHEQUE = path.join(bac, 'bibliotheque')
 
 const { AgentSession } = await import('../src/agent/session.mjs')
+const { listerModeles, SERVEUR_DEFAUT } = await import('../src/agent/moteur.mjs')
 const { listerDocuments, versionsDocument } = await import('../src/doc/bibliotheque.mjs')
 const { registre } = await import('../src/doc/sources.mjs')
+
+const SERVEUR = process.env.REDACTEUR_SERVEUR || SERVEUR_DEFAUT
+const MODELE = process.env.REDACTEUR_MODELE
+  || (await listerModeles(SERVEUR).catch(() => [])).find((m) => m.charge && m.outils)?.id
+if (!MODELE) { console.log('Aucun modèle chargé sur', SERVEUR); process.exit(1) }
 
 const t0 = Date.now()
 const min = () => `${((Date.now() - t0) / 60000).toFixed(1)} min`
@@ -40,7 +46,7 @@ const session = new AgentSession({
       case 'error': vu.erreurs.push(e.message); console.log(`[${min()}] ERREUR ${e.message.slice(0, 200)}`); break
       case 'result':
         if (e.isError) { vu.erreurs.push(e.text); console.log(`[${min()}] ARRÊT  ${String(e.text).slice(0, 200)}`) }
-        else console.log(`[${min()}] TOUR TERMINÉ — ${(e.costUsd || 0).toFixed(3)} $`)
+        else console.log(`[${min()}] TOUR TERMINÉ — ${Math.round((e.durationMs || 0) / 1000)} s`)
         vu.fini = true
         break
     }
@@ -49,7 +55,7 @@ const session = new AgentSession({
     console.log(`[${min()}] VALID. refusée pour ${req.toolName}`)
     return { behavior: 'deny', message: 'test automatique' }
   },
-  getConfig: () => ({ model: 'claude-opus-5', profondeur: 'standard', langue: 'français' }),
+  getConfig: () => ({ serveur: SERVEUR, model: MODELE, profondeur: 'standard', langue: 'français', autonomie: 'auto' }),
   ouvrirFichier: () => {},
 })
 

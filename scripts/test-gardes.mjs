@@ -21,20 +21,20 @@ fs.writeFileSync(P.registre(), JSON.stringify({
   ],
 }, null, 2))
 
-const OUTIL = 'mcp__redacteur__rediger_document'
+const OUTIL = 'rediger_document'
 const neuve = () => new GardeRedaction()
 
 /** Une garde qui a « vu » passer les résultats de consulter_source. */
 function apresLecture(...ids) {
   const g = neuve()
-  for (const id of ids) g.noteToolResult('mcp__redacteur__consulter_source', JSON.stringify({ source: { id } }))
+  for (const id of ids) g.noteToolResult('consulter_source', JSON.stringify({ source: { id } }))
   return g
 }
 
 // 1. Aucune source consultée : on refuse et on explique la marche à suivre.
 assert.match(
   neuve().verifier(OUTIL, { titre: 'T', markdown: 'du texte', sources: [] }),
-  /Cherche \(WebSearch\)/,
+  /Cherche \(`rechercher_web`\)/,
 )
 
 // 2. Un identifiant qui n'existe pas au registre.
@@ -101,13 +101,13 @@ assert.equal(
 
 // 11. Une adresse qui n'en est pas une.
 assert.match(
-  neuve().verifier('mcp__redacteur__consulter_source', { url: '/Users/demo/note.pdf' }),
+  neuve().verifier('consulter_source', { url: '/Users/demo/note.pdf' }),
   /n'est pas une adresse http/,
 )
-assert.equal(neuve().verifier('mcp__redacteur__consulter_source', { url: 'https://insee.fr' }), null)
+assert.equal(neuve().verifier('consulter_source', { url: 'https://insee.fr' }), null)
 
 // 12. Les outils qui ne sont pas les nôtres passent sans conditions.
-assert.equal(neuve().verifier('WebSearch', { query: 'londres' }), null)
+assert.equal(neuve().verifier('rechercher_web', { requete: 'londres' }), null)
 
 fs.rmSync(bac, { recursive: true, force: true })
 console.log('gardes : OK')

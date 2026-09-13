@@ -22,7 +22,7 @@ const CONVERSATIONS = [
 
 contextBridge.exposeInMainWorld('redacteur', {
   init: async () => ({
-    config: { model: 'claude-opus-5', profondeur: 'standard', langue: 'français', autonomie: 'auto', barreVisible: true, docsVisible: true, largeurBarre: null, largeurDocs: null, porteeDocs: 'conversation' },
+    config: { model: 'qwen/qwen3.8-27b', serveur: 'http://localhost:1234/v1', horsLigne: false, searxng: '', profondeur: 'standard', langue: 'français', autonomie: 'auto', barreVisible: true, docsVisible: true, largeurBarre: null, largeurDocs: null, porteeDocs: 'conversation' },
     bibliotheque: '/Users/demo/Assistant Rédacteur',
     documents: DOCUMENTS,
     totalDocuments: DOCUMENTS.length + 3,

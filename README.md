@@ -1,12 +1,16 @@
 # Assistant Rédacteur
 
-Une petite app macOS qui ouvre un assistant conversationnel — un agent Claude Code
-déguisé en fenêtre — dont le métier tient en une phrase : **tu donnes un sujet, il
-rend un document Markdown détaillé et sourcé.**
+Une petite app macOS qui ouvre un assistant conversationnel dont le métier tient en
+une phrase : **tu donnes un sujet, il rend un document Markdown détaillé et sourcé.**
 
-C'est « Claude Code lancé dans un dossier », mais le dossier c'est ta bibliothèque :
-il cherche sur le web, **lit vraiment** les pages, rédige, et enregistre un `.md`
-dans `~/Assistant Rédacteur`. Il ne fait rien d'autre.
+Il cherche sur le web, **lit vraiment** les pages, rédige, et enregistre un `.md` dans
+`~/Assistant Rédacteur`. Il ne fait rien d'autre.
+
+**Le modèle tourne chez toi.** L'app parle à un serveur compatible OpenAI sur ton
+réseau — LM Studio, Ollama, llama.cpp — et à rien d'autre : pas de clé d'API, pas de
+compte, aucun appel vers un service d'intelligence artificielle. Ce que tu écris et ce
+qu'il lit restent sur tes machines. Un interrupteur **hors ligne** coupe même l'accès
+au web : plus une seule requête ne sort.
 
 > Fais-moi un rapport complet sur la situation économique de Londres · Où en est la
 > réglementation européenne sur l'IA ? · Note de synthèse sur le marché du bois
@@ -14,10 +18,22 @@ dans `~/Assistant Rédacteur`. Il ne fait rien d'autre.
 
 ## Installation
 
+Il te faut d'abord un modèle qui tourne. Dans **LM Studio** : charge un modèle capable
+d'appeler des outils (l'app le vérifie et te le dit), puis démarre le serveur local —
+c'est l'onglet « Developer », bouton *Start Server*, port 1234 par défaut.
+
 ```bash
 npm install
 npm run install-app      # construit l'app, l'installe dans /Applications, l'épingle au Dock
 ```
+
+Au premier lancement, l'app va voir le serveur, liste ses modèles et en choisit un.
+L'adresse par défaut est `http://localhost:1234/v1` ; elle se change dans les
+réglages (⚙), avec le modèle et le mode hors ligne.
+
+> **Autorisation macOS.** Si le serveur tourne sur une *autre* machine du réseau, macOS
+> demande une fois l'accès au réseau local. Refusé, l'app ne trouvera aucun modèle :
+> Réglages Système ▸ Confidentialité et sécurité ▸ Réseau local.
 
 Un clic l'ouvre, la croix la masque (elle reste dans le Dock), `⌘Q` la quitte.
 
@@ -83,8 +99,9 @@ Une recherche longue peut s'arrêter en route. Trois filets, dans cet ordre :
 
 1. **Rien n'est coupé par accident.** Chaque fil a sa session : naviguer, en ouvrir un
    autre, en créer un nouveau — rien de tout cela ne touche à une recherche en cours.
-2. **Reconnexion automatique.** Si Claude Code s'arrête en cours de route, l'app
-   rebranche la conversation sur son contexte (deux tentatives) et le dit dans le fil.
+2. **Le contexte est sur ton disque.** Chaque étape est enregistrée dans le fichier de
+   la conversation. Serveur redémarré, app fermée en pleine recherche, modèle
+   déchargé : on reprend la conversation où elle en était au lieu de la recommencer.
 3. **↻ Reprendre**, à un clic — dans le fil quand un tour s'arrête, et sur la ligne de
    tout fil resté en plan dans la liste. Ça rebranche la session sur son contexte et
    redemande la suite, sans refaire ce qui est déjà fait.
@@ -100,9 +117,10 @@ donc toujours quelque chose de lisible derrière elle.
 Un modèle de langage sait produire une bibliographie crédible sans avoir rien lu.
 L'app rend ça impossible, par construction :
 
-1. **`WebFetch` est désactivé.** La seule façon d'ouvrir une page est l'outil
-   `consulter_source`, qui la télécharge, la met à plat et **l'inscrit à un registre**
-   (identifiant, titre, éditeur, date de publication, date de consultation).
+1. **Chercher et lire sont deux choses.** `rechercher_web` ne rend que des adresses ;
+   la seule façon d'ouvrir une page est `consulter_source`, qui la télécharge, la met à
+   plat et **l'inscrit à un registre** (identifiant, titre, éditeur, date de
+   publication, date de consultation).
 2. **Un garde-fou déterministe** (`src/agent/gardes.mjs`) inspecte chaque document
    avant enregistrement. Toute adresse `http(s)` présente dans le texte et absente du
    registre fait **refuser** l'appel, avec la liste des coupables. Le modèle n'a pas
@@ -232,7 +250,7 @@ que l'emploi se dégrade à l'est. Ce document fait le point au 29 août 2026.
 - **Version 3** — mise à jour le 29 août 2026
 - Créé le 21 août 2026
 - 9 sources consultées
-- Rédigé par l'Assistant Rédacteur (claude-opus-5)
+- Rédigé par l'Assistant Rédacteur (qwen/qwen3.8-27b)
 
 <!-- assistant-redacteur: {"titre":"…","version":3,"sources":9,…} -->
 ```
@@ -248,27 +266,56 @@ se rangent les trous, les chiffres périmés et les contradictions non tranchée
 
 | Réglage | Effet |
 |---|---|
-| **Modèle** | Opus 5 par défaut. Sonnet 5 va plus vite, Haiku 4.5 est expéditif. |
+| **Modèle local** | la liste vient du serveur : ce que ta machine a vraiment sous la main |
+| **Serveur** | l'adresse du serveur compatible OpenAI (`http://…:1234/v1`) |
+| **Accès web** | `Recherche et lecture autorisées` (défaut) · `Hors ligne — rien ne sort` |
+| **SearXNG** | l'adresse d'une instance à interroger au lieu du moteur public |
 | **Autonomie** | `Il agit seul` (défaut) · `Me demander avant les actions sensibles` |
 | **Profondeur** | `Note` ~1 000 mots / 3-5 sources · `Document` ~2 500 mots / 6-10 · `Dossier` ~5 000 mots / 12+ |
 | **Langue** | français ou anglais |
 | **Bibliothèque** | le dossier où atterrissent les documents |
 
-Changer la profondeur ou la langue repart sur une conversation neuve : ces règles
-vivent dans les consignes de l'assistant.
+Profondeur, langue, autonomie et mode hors ligne s'appliquent **dès le message
+suivant**, sans rien perdre de la conversation en cours : les consignes sont
+refabriquées à chaque tour.
+
+### La taille de la fenêtre compte
+
+Un modèle local a une fenêtre de contexte étroite, et l'app s'y adapte toute seule :
+elle raccourcit les extraits de pages, abrège les vieux résultats d'outils, et garde
+un tiers de la fenêtre pour la réponse. Elle le dit aussi dans le fil quand la fenêtre
+est trop courte.
+
+**Mets *Context Length* à 32 768 ou plus** au chargement du modèle dans LM Studio.
+La raison : dans cette fenêtre doivent tenir en même temps les consignes, les pages
+lues, la conversation **et** le document à écrire — et un modèle « qui réfléchit »
+(Qwen3, DeepSeek-R1 et consorts) dépense encore un ou deux milliers de jetons à penser
+avant chaque appel d'outil. À 16 k, il lit bien mais se fait couper en pleine
+rédaction ; à 32 k, il écrit ses documents d'une traite. L'app affiche la fenêtre
+détectée sous le menu des modèles.
+
+### Hors ligne
+
+Interrupteur dans les réglages. Plus aucune requête ne sort : ni recherche, ni lecture
+de page. L'assistant travaille alors sur les sources **déjà lues** (elles sont
+enregistrées sur le disque, texte intégral compris), les documents de la bibliothèque
+et les fichiers que tu lui donnes. S'il rédige sans source, le document porte un
+avertissement en tête — il ne fait pas semblant d'avoir vérifié.
 
 ## Mettre à jour un document
 
-« Reprends mon rapport sur Londres » : il le relit, **rouvre les sources**, réécrit,
-et demande confirmation avant d'écraser l'ancienne version. La date de création est
-conservée, `mis_a_jour_le` avance.
+« Reprends mon rapport sur Londres » : il le relit, **rouvre les sources** et publie
+une version de plus. Rien n'est écrasé — l'ancienne version reste consultable et
+restaurable — donc rien n'est à valider. La date de création est conservée,
+`mis_a_jour_le` avance.
 
 ## Ce qu'il peut faire d'autre
 
-Il tourne sur ta machine avec Bash, la lecture/écriture de fichiers et la recherche
-web. Il peut donc lire un PDF que tu lui donnes, dépouiller un CSV, ou partir d'un
-document déjà dans la bibliothèque. Toute action en dehors de la bibliothèque
-(commande shell, écriture d'un fichier ailleurs) passe par une carte de validation.
+Il lit les fichiers que tu lui indiques : notes, Markdown, CSV, et les **PDF** (le
+texte en est extrait sans dépendance ; un PDF scanné, lui, est signalé comme illisible
+plutôt que cité à tort). Il peut aussi repartir d'un document déjà dans la
+bibliothèque. Il n'a ni shell ni droit d'écriture ailleurs que dans la bibliothèque :
+il n'y a rien d'autre à valider qu'une suppression.
 
 ## macOS : signature, trousseau, autorisations
 
@@ -278,28 +325,32 @@ Trois pièges que l'app désamorce, et qu'il vaut mieux connaître si tu la reco
    le chemin de l'exécutable ou d'un helper fait planter Electron au lancement —
    `SIGTRAP`, sans message. Le nom accentué revient par `CFBundleDisplayName` : le
    Finder, le Dock et les menus affichent bien « Assistant Rédacteur ».
-2. **La signature est stable.** Claude Code garde ses identifiants dans le trousseau
-   macOS, qui autorise un programme d'après sa signature. Une signature *ad hoc*
-   change à chaque construction : macOS redemanderait l'autorisation à chaque
-   nouvelle version. `scripts/signature.sh` crée une fois un certificat auto-signé
-   local et `build-app.sh` s'en sert — le « Toujours autoriser » donné une fois vaut
-   pour toutes les versions suivantes.
+2. **La signature est stable.** macOS accorde ses autorisations — l'accès au réseau
+   local, notamment, sans lequel l'app ne trouve pas ton serveur — d'après la
+   signature du programme. Une signature *ad hoc* change à chaque construction : macOS
+   redemanderait tout à chaque nouvelle version. `scripts/signature.sh` crée une fois
+   un certificat auto-signé local et `build-app.sh` s'en sert — l'autorisation donnée
+   une fois vaut pour les versions suivantes.
 3. **La bibliothèque évite `~/Documents`**, protégé par macOS (voir plus haut).
 
 Si l'assistant reste muet après une demande, ouvre **Conversation ▸ Ouvrir le journal
-de bord** : l'app y écrit son démarrage et la sortie d'erreur de Claude Code. Au bout
-de 30 secondes sans réponse, elle le dit aussi dans le fil.
+de bord** : l'app y écrit son démarrage, l'adresse du serveur, le modèle retenu et la
+fenêtre de contexte détectée. Un serveur éteint est dit dans le fil dès l'ouverture de
+la conversation ; un serveur qui se fige en cours de route rend la main au bout de
+cinq minutes de silence, avec un message qui dit quoi vérifier.
 
-> À savoir : en entrée continue, Claude Code n'envoie **rien** — pas même son message
-> d'initialisation — tant qu'il n'a pas reçu une première demande. La fenêtre affiche
-> donc « prêt » dès l'ouverture ; la session s'établit vraiment au premier message.
+> À savoir : un modèle local prend son temps. Sur une longue conversation, il relit
+> tout le contexte avant d'écrire son premier mot — quelques dizaines de secondes par
+> étape sont normales. C'est aussi pour ça qu'il publie une première version du
+> document tôt, puis l'enrichit.
 
 ## Développement
 
 ```bash
 npm start          # lance l'app depuis les sources
-npm test           # extraction, garde-fous, bibliothèque, outils, conversations, sessions, autonomie
-npm run selftest   # vraie session agent : consulte une page et écrit un document
+npm test           # extraction, gardes, bibliothèque, outils, conversations, sessions, autonomie, moteur
+npm run moteur     # le moteur seul, contre un faux serveur local : outils, contexte, pannes
+npm run selftest   # vraie session contre ton serveur : consulte une page et écrit un document
 npm run charge     # demande lourde menée jusqu'au bout, avec relance automatique
 npx electron scripts/apercu.mjs   # rejoue une conversation type et capture l'interface
 ```
@@ -307,15 +358,18 @@ npx electron scripts/apercu.mjs   # rejoue une conversation type et capture l'in
 | Fichier | Rôle |
 |---|---|
 | `src/main.mjs` | fenêtre, réglages, IPC, cartes de validation |
-| `src/agent/session.mjs` | la boucle Claude Agent SDK |
+| `src/agent/moteur.mjs` | le client du serveur local : flux, appels d'outils, pannes |
+| `src/agent/session.mjs` | la boucle d'agent : outils, garde-fous, contexte rogné |
 | `src/agent/prompt.mjs` | les consignes : méthode, forme du document, ton |
-| `src/agent/outils.mjs` | les outils MCP (consulter, rédiger, bibliothèque) |
+| `src/agent/outils.mjs` | les outils (chercher, consulter, rédiger, bibliothèque) |
 | `src/agent/gardes.mjs` | les refus déterministes : on ne cite que ce qu'on a lu |
 | `src/agent/pool.mjs` | deux sessions de front, une file d'attente, zéro interruption |
 | `src/doc/conversations.mjs` | les fils : titre, recherche, affichage rejouable |
 | `src/doc/journal.mjs` | le journal de bord, seule trace quand l'app est lancée du Dock |
 | `scripts/signature.sh` | l'identité de signature locale, stable d'une version à l'autre |
+| `src/doc/recherche.mjs` | la recherche web, sans clé ni intermédiaire (SearXNG, DuckDuckGo) |
 | `src/doc/web.mjs` | téléchargement et mise à plat des pages |
+| `src/doc/pdf.mjs` | extraction du texte d'un PDF, sans dépendance |
 | `src/doc/sources.mjs` | le registre des sources consultées |
 | `src/doc/bibliotheque.mjs` | les fichiers `.md` : en-tête, corps, bibliographie |
 | `scripts/test-gardes.mjs` | les douze cas que le garde-fou doit refuser ou laisser passer |

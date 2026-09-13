@@ -12,17 +12,17 @@ const out = process.argv[2] || path.join(root, 'apercu.png')
 const src = (id, titre, url) => ({ k: 'source', source: { id, titre, url, editeur: 'ONS', consultee_le: '2026-08-29T09:00:00Z', type: 'html' }, deja_lue: false })
 
 const SCENARIO = [
-  { evt: { k: 'ready', sessionId: 'x', model: 'claude-opus-5', outils: 'connected' } },
+  { evt: { k: 'ready', sessionId: 'x', model: 'qwen/qwen3.8-27b', outils: 'connected' } },
   { user: 'Fais-moi un rapport complet sur la situation économique de Londres' },
-  { evt: { k: 'tool-use', id: 't0', name: 'WebSearch', input: { query: 'London economy GDP 2026 ONS' } } },
-  { evt: { k: 'tool-result', id: 't0', name: 'WebSearch', ok: true, preview: '9 résultats' } },
+  { evt: { k: 'tool-use', id: 't0', name: 'rechercher_web', input: { requete: 'London economy GDP 2026 ONS' } } },
+  { evt: { k: 'tool-result', id: 't0', name: 'rechercher_web', ok: true, preview: '9 résultats' } },
   { evt: src('s1', 'GDP, UK regions and countries', 'https://www.ons.gov.uk/economy/gdp') },
   { evt: src('s2', 'London Labour Market Update — August 2026', 'https://www.london.gov.uk/labour-market') },
   { evt: src('s3', 'City of London: financial services output', 'https://www.cityoflondon.gov.uk/research') },
   { evt: { k: 'text-start' } },
   { evt: { k: 'text-delta', text: "Trois sources primaires lues (ONS, GLA, City of London). Je complète avec l'immobilier de bureau et l'inflation, puis je rédige.\n\nPoint notable : **l'écart entre la City et le reste du Grand Londres se creuse** — je lui donnerai une section." } },
-  { evt: { k: 'tool-use', id: 't1', name: 'mcp__redacteur__rediger_document', input: { titre: 'Situation économique de Londres — état des lieux, août 2026', sources: ['s1', 's2', 's3'] } } },
-  { evt: { k: 'tool-result', id: 't1', name: 'mcp__redacteur__rediger_document', ok: true, preview: 'enregistré' } },
+  { evt: { k: 'tool-use', id: 't1', name: 'rediger_document', input: { titre: 'Situation économique de Londres — état des lieux, août 2026', sources: ['s1', 's2', 's3'] } } },
+  { evt: { k: 'tool-result', id: 't1', name: 'rediger_document', ok: true, preview: 'enregistré' } },
   {
     evt: {
       k: 'document',
@@ -130,7 +130,7 @@ app.whenReady().then(async () => {
   await tirer({
     k: 'permission',
     id: 'p1',
-    toolName: 'mcp__redacteur__supprimer_document',
+    toolName: 'supprimer_document',
     allowAlways: false,
     title: 'Supprimer « Situation économique de Londres » ?',
     hint: 'Le fichier et tout son historique sont effacés du disque.',

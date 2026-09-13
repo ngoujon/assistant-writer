@@ -1,15 +1,24 @@
-// Les conversations : un fichier JSON par fil, avec de quoi le rejouer à l'écran.
+// Les conversations : un fichier JSON par fil, avec de quoi le rejouer à l'écran —
+// et de quoi le reprendre.
 //
-// Le SDK sait reprendre une conversation côté modèle (`resume`), mais il ne rend
-// pas ce qui a été affiché. On garde donc ici une trace légère de ce qui a défilé
-// dans la fenêtre — messages, sources lues, documents produits — pour qu'un
-// retour sur un ancien fil retrouve exactement ce qu'on y avait vu.
+// Deux choses cohabitent ici, qu'il ne faut pas confondre. Les `evenements` sont ce
+// qui a DÉFILÉ dans la fenêtre : messages, sources lues, documents produits. L'
+// `historique` est ce que le MODÈLE a en tête : les messages au format du serveur,
+// appels d'outils compris. Le premier sert à repeindre l'écran, le second à reprendre
+// le travail là où il s'était arrêté — c'est le SDK d'Anthropic qui gardait ce
+// contexte pour nous ; il vit maintenant ici, sur le disque de Nicolas.
 import fs from 'node:fs'
 import crypto from 'node:crypto'
 import { P, ensureDonnees } from './paths.mjs'
 
 /** Au-delà, un fil très long est tronqué par le début : seul l'affichage y perd. */
 const MAX_EVENEMENTS = 400
+
+/** Autant de messages de modèle conservés : bien plus que ce qui tient en contexte. */
+const MAX_HISTORIQUE = 120
+
+/** Un résultat d'outil très long est écourté sur le disque, pas en mémoire vive. */
+const MAX_RESULTAT = 8000
 
 const maintenant = () => new Date().toISOString()
 
@@ -46,6 +55,7 @@ export function creer({ titre } = {}) {
     sessionId: null,
     documents: [],
     evenements: [],
+    historique: [],
   })
 }
 
@@ -119,6 +129,31 @@ export function marquerStatut(id, statut) {
   if (!c || c.statut === statut) return null
   c.statut = statut
   return resume(ecrire(c))
+}
+
+/**
+ * Enregistre le contexte du modèle. Écrit à chaque étape d'outil : une application
+ * qui s'arrête en pleine recherche doit pouvoir la reprendre, pas la recommencer.
+ */
+export function memoriserHistorique(id, messages) {
+  const c = lire(id)
+  if (!c || !Array.isArray(messages)) return
+  let taille = messages.slice(-MAX_HISTORIQUE).map((m) => (
+    typeof m.content === 'string' && m.content.length > MAX_RESULTAT && m.role === 'tool'
+      ? { ...m, content: `${m.content.slice(0, MAX_RESULTAT)}\n…[résultat écourté]` }
+      : m
+  ))
+  // Un message d'outil sans l'appel qui l'a provoqué ferait refuser la reprise par
+  // le serveur : on coupe proprement, au premier message qui n'en est pas un.
+  while (taille.length && taille[0].role === 'tool') taille = taille.slice(1)
+  c.historique = taille
+  ecrire(c)
+}
+
+/** Le contexte du modèle pour ce fil, tel qu'il a été laissé. */
+export function historique(id) {
+  const c = lire(id)
+  return Array.isArray(c?.historique) ? c.historique : []
 }
 
 export function memoriserSession(id, sessionId) {

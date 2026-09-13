@@ -6,6 +6,7 @@ import { setDataRoot, setBibliotheque, bibliothequeParDefaut, P } from './doc/pa
 import { AgentSession } from './agent/session.mjs'
 import { Pool, MAX_EN_PARALLELE } from './agent/pool.mjs'
 import { PROMPT_VERSION } from './agent/prompt.mjs'
+import { SERVEUR_DEFAUT, listerModeles, racine } from './agent/moteur.mjs'
 import {
   listerDocuments, lireDocument, supprimerDocument, versionsDocument, lireVersion, LISEZ_MOI,
 } from './doc/bibliotheque.mjs'
@@ -16,7 +17,16 @@ import { tracer, cheminJournal } from './doc/journal.mjs'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const CONFIG_DEFAUT = {
-  model: 'claude-opus-5',
+  // Le moteur : un serveur compatible OpenAI sur le réseau de Nicolas (LM Studio,
+  // Ollama, llama.cpp). Rien ne sort vers un service d'intelligence artificielle.
+  serveur: SERVEUR_DEFAUT,
+  // Choisi au démarrage parmi les modèles que le serveur dit avoir chargés.
+  model: null,
+  // Coupe tout accès réseau : ni recherche, ni lecture de page. L'assistant
+  // travaille alors sur les sources déjà lues et les fichiers du disque.
+  horsLigne: false,
+  // Instance SearXNG à préférer au moteur public, si Nicolas en fait tourner une.
+  searxng: '',
   // Longueur et nombre de sources visés. Voir agent/prompt.mjs.
   profondeur: 'standard',
   langue: 'français',
@@ -76,6 +86,9 @@ function loadConfig() {
   // Réglage retiré : un document ne s'ouvre plus jamais tout seul. On efface la
   // clé, sinon un ancien « true » enregistré continuerait de vivre sa vie.
   delete config.ouvrirAuto
+  // L'application ne passe plus par Claude : un modèle Anthropic enregistré n'a
+  // plus de sens, on le remplace par ce que le serveur local propose.
+  if (/^claude/i.test(String(config.model || ''))) config.model = null
   // Des dimensions enregistrées incomplètes donneraient une fenêtre minuscule.
   if (config.bounds && !(config.bounds.width > 0 && config.bounds.height > 0)) {
     config.bounds = {
@@ -109,6 +122,54 @@ function saveConfig() {
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2))
     } catch {}
   }, 300)
+}
+
+// ------------------------------------------------------------------ moteur
+
+/** Ce que le serveur local propose, tel qu'on l'a vu la dernière fois. */
+let modelesConnus = []
+
+/**
+ * Va voir quels modèles le serveur a sous la main, et en choisit un si le réglage
+ * est vide ou pointe vers un modèle qui n'est plus là. On préfère un modèle déjà
+ * chargé et capable d'appeler des outils : sans outils, l'assistant ne peut ni
+ * chercher, ni lire, ni écrire un document.
+ */
+async function rafraichirModeles({ silencieux = false } = {}) {
+  try {
+    modelesConnus = await listerModeles(config.serveur)
+  } catch (err) {
+    modelesConnus = []
+    if (!silencieux) {
+      emit({
+        k: 'note',
+        kind: 'err',
+        text: `Serveur local injoignable (${racine(config.serveur)}) : ${String(err?.message || err)}. `
+          + 'Démarre le serveur dans LM Studio, ou corrige son adresse dans les réglages.',
+      })
+    }
+    emit({ k: 'modeles', liste: [], courant: config.model, serveur: racine(config.serveur) })
+    return modelesConnus
+  }
+
+  const connu = modelesConnus.some((m) => m.id === config.model)
+  if (!connu) {
+    const choisi = modelesConnus.find((m) => m.charge && m.outils)
+      || modelesConnus.find((m) => m.outils)
+      || modelesConnus[0]
+    if (choisi) {
+      const ancien = config.model
+      config.model = choisi.id
+      saveConfig()
+      tracer('modèle local retenu', choisi.id, ancien ? `(remplace ${ancien})` : '')
+      if (ancien && !silencieux) {
+        emit({ k: 'note', text: `Le modèle « ${ancien} » n'est plus proposé par le serveur : je passe sur « ${choisi.id} ».` })
+      }
+    }
+  }
+
+  emit({ k: 'modeles', liste: modelesConnus, courant: config.model, serveur: racine(config.serveur) })
+  return modelesConnus
 }
 
 function ensureBibliotheque() {
@@ -196,8 +257,8 @@ function viderAttente() {
 
 // ------------------------------------------------------- mémoire des fils
 //
-// Ce que la fenêtre a affiché est réenregistré au fil de l'eau : le SDK sait
-// reprendre le contexte du modèle, pas ce qu'on avait sous les yeux.
+// Ce que la fenêtre a affiché est réenregistré au fil de l'eau, à côté du contexte du
+// modèle : ce sont deux mémoires différentes, et l'écran se repeint depuis celle-ci.
 
 /** Le texte en cours de frappe du modèle, par fil : plusieurs écrivent à la fois. */
 const tampons = new Map()
@@ -468,7 +529,10 @@ function wireIpc() {
     setImmediate(viderAttente)
     return {
       config: {
+        serveur: racine(config.serveur),
         model: config.model,
+        horsLigne: !!config.horsLigne,
+        searxng: config.searxng || '',
         profondeur: config.profondeur,
         langue: config.langue,
         autonomie: config.autonomie || 'auto',
@@ -482,8 +546,14 @@ function wireIpc() {
       documents: documentsAffiches(),
       totalDocuments: listerDocuments().length,
       conversations: listeConversations(),
+      modeles: modelesConnus,
       version: app.getVersion(),
     }
+  })
+
+  ipcMain.handle('app:modeles', async () => {
+    await rafraichirModeles()
+    return { liste: modelesConnus, courant: config.model, serveur: racine(config.serveur) }
   })
 
   ipcMain.on('chat:send', (_e, text) => {
@@ -492,14 +562,25 @@ function wireIpc() {
   })
   ipcMain.on('chat:interrupt', () => { if (courante) pool.interrompre(courante.id) })
   ipcMain.on('chat:config', (_e, patch) => {
+    const serveurChange = patch.serveur && racine(patch.serveur) !== racine(config.serveur)
     Object.assign(config, patch)
+    if (patch.serveur) config.serveur = racine(patch.serveur)
     saveConfig()
+    // Les consignes sont refabriquées à chaque tour depuis les réglages : changer la
+    // profondeur, la langue ou le mode hors ligne s'applique au message suivant, sans
+    // rien perdre de la conversation en cours.
     if (patch.model) pool.setModel(patch.model)
-    // Profondeur et langue vivent dans le prompt système : les sessions repartent.
-    if (patch.profondeur || patch.langue || patch.autonomie) {
-      emit({ k: 'note', text: 'Nouvelles règles de rédaction : la suite repart sur un contexte neuf.' })
-      pool.toutArreter()
-      diffuserListe()
+    if (serveurChange) {
+      config.model = null
+      rafraichirModeles()
+    }
+    if (patch.horsLigne !== undefined) {
+      emit({
+        k: 'note',
+        text: patch.horsLigne
+          ? 'Mode hors ligne : plus aucune requête ne sort de cette machine. Les sources déjà lues restent disponibles.'
+          : 'Accès web rétabli : la recherche et la lecture de pages repartent.',
+      })
     }
   })
   ipcMain.on('perm:reply', (_e, { id, answer }) => resolvePermission(id, answer))
@@ -680,6 +761,10 @@ if (!app.requestSingleInstanceLock()) {
         emit: (evt) => routerEvenement(convId, evt),
         askPermission: (req) => askPermission({ ...req, convId }),
         getConfig: () => config,
+        // Le contexte du modèle vit dans le fichier de la conversation : une app
+        // fermée en pleine recherche la reprend au lieu de la recommencer.
+        chargerHistorique: () => Conv.historique(convId),
+        enregistrerHistorique: (_sid, messages) => Conv.memoriserHistorique(convId, messages),
         ouvrirFichier,
         envoyerCorbeille: async (chemin) => {
           try { await shell.trashItem(chemin); return true } catch { return false }
@@ -712,6 +797,8 @@ if (!app.requestSingleInstanceLock()) {
         ensureBibliotheque()
         diffuserDocuments()
       } catch {}
+
+      rafraichirModeles({ silencieux: false })
 
       resumeInterdit = config.promptVersion !== PROMPT_VERSION
       if (resumeInterdit) {
