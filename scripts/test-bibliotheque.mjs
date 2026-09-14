@@ -34,7 +34,7 @@ const info = bib.ecrireDocument({
   sujet: 'rapport complet',
   markdown: '## En bref\n\n- Croissance de 1,4 % ([ONS](https://ons.gov.uk/pib)).\n\n## Sources\n\n- une liste écrite à la main, à jeter',
   sources: ['s1', 's2'],
-  modele: 'qwen/qwen3.8-27b',
+  modele: 'claude-opus-5',
 })
 
 const brut = fs.readFileSync(info.chemin, 'utf8')
@@ -44,7 +44,7 @@ assert.ok(!brut.startsWith('---'), "plus d'en-tête YAML en tête de fichier")
 // Les informations de production sont en queue, lisibles puis exploitables.
 assert.match(brut, /## À propos de ce document/)
 assert.match(brut, /- \*\*Version 1\*\* — mise à jour le/)
-assert.match(brut, /Rédigé par l'Assistant Rédacteur \(qwen\/qwen3\.8-27b\)/)
+assert.match(brut, /Rédigé par l'Assistant Rédacteur \(claude-opus-5\)/)
 assert.match(brut, /<!-- assistant-redacteur: \{.*"version":1.*\} -->/)
 assert.ok(brut.indexOf('## À propos') > brut.indexOf('## Sources'), "le bloc technique ferme le document")
 assert.ok(!brut.includes('à jeter'), 'la section « Sources » écrite à la main est remplacée')

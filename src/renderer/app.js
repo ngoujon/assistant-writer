@@ -8,10 +8,6 @@ const sendBtn = document.getElementById('btn-send')
 const statusLine = document.getElementById('status-line')
 const panneauReglages = document.getElementById('settings')
 const modelSelect = document.getElementById('model')
-const serveurInput = document.getElementById('serveur')
-const etatServeur = document.getElementById('etat-serveur')
-const horsLigneSelect = document.getElementById('hors-ligne')
-const searxngInput = document.getElementById('searxng')
 const profondeurSelect = document.getElementById('profondeur')
 const langueSelect = document.getElementById('langue')
 const autonomieSelect = document.getElementById('autonomie')
@@ -104,36 +100,42 @@ function dropWelcome() {
 // ---------------------------------------------------------- noms des outils
 
 const OUTILS = {
-  rechercher_web: ['🌐', 'Recherche web'],
   consulter_source: ['🔍', 'Lire une source'],
   sources_consultees: ['🗂', 'Registre des sources'],
   relire_source: ['📑', 'Relire une source'],
-  lire_fichier: ['📄', 'Lire un fichier'],
   rediger_document: ['📝', 'Rédiger le document'],
   lister_documents: ['📚', 'Parcourir la bibliothèque'],
   lire_document: ['📄', 'Relire un document'],
   ouvrir_document: ['↗', 'Ouvrir un document'],
   supprimer_document: ['🗑', 'Supprimer un document'],
-  titrer_conversation: ['🏷', 'Titrer la conversation'],
-  versions_document: ['🕰', 'Historique du document'],
-  lire_version: ['🕰', 'Relire une version'],
-  restaurer_version: ['↩', 'Restaurer une version'],
 }
 
-// Les fils écrits avant le passage au moteur local portent des noms préfixés par le
-// serveur MCP d'alors. On les reconnaît encore : un vieux fil doit rester lisible.
-const nomCourt = (name) => String(name || '').replace(/^mcp__redacteur__/, '')
+const BUILTIN = {
+  Bash: ['⌘', 'Terminal'],
+  Read: ['📄', 'Lire un fichier'],
+  Write: ['✏️', 'Écrire un fichier'],
+  Edit: ['✏️', 'Modifier un fichier'],
+  Glob: ['🔎', 'Chercher des fichiers'],
+  Grep: ['🔎', 'Chercher dans les fichiers'],
+  WebSearch: ['🌐', 'Recherche web'],
+  TodoWrite: ['📋', 'Plan de travail'],
+  Task: ['🤖', 'Sous-agent'],
+}
 
 function describeTool(name) {
-  const court = nomCourt(name)
-  if (OUTILS[court]) return OUTILS[court]
-  return ['•', court.replace(/_/g, ' ')]
+  if (name.startsWith('mcp__redacteur__')) {
+    const court = name.slice('mcp__redacteur__'.length)
+    return OUTILS[court] || ['📝', court.replace(/_/g, ' ')]
+  }
+  if (BUILTIN[name]) return BUILTIN[name]
+  if (name.startsWith('mcp__')) return ['🔌', name.split('__').slice(1).join(' · ')]
+  return ['•', name]
 }
 
 function summarizeInput(name, input) {
   if (!input || typeof input !== 'object') return ''
+  if (name === 'Bash') return String(input.command || '')
   if (name.endsWith('rediger_document')) return String(input.titre || '')
-  if (name.endsWith('rechercher_web')) return String(input.requete || '')
   if (input.file_path) return String(input.file_path).split('/').pop()
   for (const k of ['url', 'query', 'nom', 'id', 'titre', 'prompt', 'description', 'pattern']) {
     if (typeof input[k] === 'string' && input[k]) return input[k]
@@ -142,7 +144,7 @@ function summarizeInput(name, input) {
   return first ? String(first) : ''
 }
 
-const MONO_TOOLS = new Set(['rediger_document', 'mcp__redacteur__rediger_document'])
+const MONO_TOOLS = new Set(['Bash', 'Write', 'Edit'])
 
 const ETIQUETTES = {
   url: 'adresse', titre: 'titre', sujet: 'sujet', nom: 'fichier', sources: 'sources',
@@ -190,7 +192,7 @@ function pushUserMessage(text, enAttente) {
 }
 
 /**
- * L'agent vient de reprendre la parole ou d'appeler un outil : il a donc
+ * L'agent vient de reprendre la parole ou d'appeler un outil : le SDK lui a donc
  * remis les messages en attente à cette respiration-là. On retire le marqueur.
  */
 function videEnFile() {
@@ -259,7 +261,7 @@ function addTool(evt) {
   finishThinking()
   // Les sources lues s'affichent comme des puces, pas comme des appels d'outil :
   // c'est la matière du document, pas de la plomberie.
-  if (nomCourt(evt.name) === 'consulter_source') return
+  if (evt.name === 'mcp__redacteur__consulter_source') return
   currentSources = null
   const node = noeudOutil(evt.name, summarizeInput(evt.name, evt.input), humanizeInput(evt.input).join('\n'))
   node.classList.add('running')
@@ -559,7 +561,7 @@ function addPermission(evt) {
       card.append(toggle, pre)
     }
   } else {
-    const detail = humanizeInput(evt.input).join('\n')
+    const detail = evt.toolName === 'Bash' ? String(evt.input?.command || '') : humanizeInput(evt.input).join('\n')
     if (detail) card.appendChild(el('pre', null, detail))
   }
 
@@ -628,7 +630,7 @@ function statusBibliotheque() {
 
 /**
  * Envoie, même si l'agent travaille encore : le message rejoint sa file d'entrée
- * et il refait son plan avec. La session les lui remet entre deux outils, et c'est ce
+ * et il refait son plan avec. C'est le comportement de Claude Code, et c'est ce
  * qui permet de le réorienter en pleine recherche.
  */
 function submit(forced) {
@@ -701,46 +703,7 @@ document.getElementById('btn-choisir').addEventListener('click', async () => {
   statusBibliotheque()
 })
 
-/**
- * Le menu des modèles n'est pas écrit à l'avance : il vient du serveur local. Ce
- * qu'on affiche, c'est ce que la machine de Nicolas a vraiment sous la main.
- */
-function remplirModeles({ liste = [], courant, serveur } = {}) {
-  modelSelect.replaceChildren()
-  if (!liste.length) {
-    const vide = el('option', '', 'Aucun modèle — serveur injoignable')
-    vide.value = courant || ''
-    modelSelect.appendChild(vide)
-    modelSelect.disabled = true
-    etatServeur.textContent = serveur ? `${serveur} — pas de réponse` : ''
-    return
-  }
-  modelSelect.disabled = false
-  for (const m of liste) {
-    const o = el('option', '', `${m.id}${m.charge ? '' : ' — à charger'}${m.outils ? '' : ' — sans outils'}`)
-    o.value = m.id
-    modelSelect.appendChild(o)
-  }
-  if (courant) modelSelect.value = courant
-  const actif = liste.find((m) => m.id === modelSelect.value)
-  etatServeur.textContent = actif?.contexte
-    ? `${serveur || ''} — fenêtre de ${actif.contexte.toLocaleString('fr-FR')} jetons`
-    : (serveur || '')
-}
-
 modelSelect.addEventListener('change', () => api.setConfig({ model: modelSelect.value }))
-
-serveurInput.addEventListener('change', async () => {
-  api.setConfig({ serveur: serveurInput.value.trim() })
-  etatServeur.textContent = 'connexion…'
-  remplirModeles(await api.modeles())
-})
-document.getElementById('btn-modeles').addEventListener('click', async () => {
-  etatServeur.textContent = 'connexion…'
-  remplirModeles(await api.modeles())
-})
-horsLigneSelect.addEventListener('change', () => api.setConfig({ horsLigne: horsLigneSelect.value === 'oui' }))
-searxngInput.addEventListener('change', () => api.setConfig({ searxng: searxngInput.value.trim() }))
 profondeurSelect.addEventListener('change', () => api.setConfig({ profondeur: profondeurSelect.value }))
 langueSelect.addEventListener('change', () => api.setConfig({ langue: langueSelect.value }))
 autonomieSelect.addEventListener('change', () => api.setConfig({ autonomie: autonomieSelect.value }))
@@ -1001,8 +964,7 @@ api.onEvent((evt) => {
       proposerReprise()
       setBusy(false)
       break
-    // Une note peut être un avertissement (serveur injoignable) : elle se voit alors.
-    case 'note': addNote(evt.text, evt.kind); break
+    case 'note': addNote(evt.text); break
     case 'reprise-possible': proposerReprise(); break
     case 'resumed': addNote('Reprise de la conversation précédente.'); break
     case 'conversation':
@@ -1017,9 +979,6 @@ api.onEvent((evt) => {
       if (evt.evenements?.length && (evt.statut === 'interrompu' || evt.statut === 'incomplet')) {
         proposerReprise('↻ Reprendre cette analyse')
       }
-      break
-    case 'modeles':
-      remplirModeles(evt)
       break
     case 'conversations':
       conversations = evt.liste
@@ -1043,10 +1002,7 @@ api.onEvent((evt) => {
 // ---------------------------------------------------------------- démarrage
 
 const state = await api.init()
-serveurInput.value = state.config.serveur || ''
-searxngInput.value = state.config.searxng || ''
-horsLigneSelect.value = state.config.horsLigne ? 'oui' : 'non'
-remplirModeles({ liste: state.modeles || [], courant: state.config.model, serveur: state.config.serveur })
+modelSelect.value = state.config.model
 profondeurSelect.value = state.config.profondeur || 'standard'
 langueSelect.value = state.config.langue || 'français'
 autonomieSelect.value = state.config.autonomie || 'auto'

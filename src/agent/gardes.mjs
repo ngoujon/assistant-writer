@@ -1,14 +1,14 @@
 // Garde-fous déterministes. Le prompt demande à l'assistant de ne citer que ce
-// qu'il a lu ; ces vérifications le lui imposent. Elles refusent l'appel avant son
-// exécution et expliquent quoi faire — le modèle corrige au lieu de publier une
-// référence fausse. C'est d'autant plus nécessaire avec un modèle local : il a moins
-// de discipline qu'un grand modèle, et ces règles-là ne se négocient pas.
+// qu'il a lu ; ces hooks PreToolUse le lui imposent. Ils refusent l'appel et
+// expliquent quoi faire — le modèle corrige au lieu de publier une référence fausse.
 //
 // C'est ce qui sépare ce générateur d'un modèle qui « fait comme si » : une URL
 // non consultée ne peut littéralement pas atterrir dans un document.
 import { urlsCitables, parId } from '../doc/sources.mjs'
 import { normaliserUrl, urlsDuTexte } from '../doc/web.mjs'
 import { existe, nomFichier } from '../doc/bibliotheque.mjs'
+
+const PREFIXE = 'mcp__redacteur__'
 
 export class GardeRedaction {
   constructor() {
@@ -18,8 +18,8 @@ export class GardeRedaction {
 
   /** Mémorise les sources dès que l'assistant en consulte une. */
   noteToolResult(toolName, brut) {
-    if (!brut) return
-    const nom = String(toolName || '').replace(/^mcp__redacteur__/, '')
+    if (!brut || !toolName.startsWith(PREFIXE)) return
+    const nom = toolName.slice(PREFIXE.length)
     if (nom !== 'consulter_source' && nom !== 'relire_source') return
     try {
       const data = JSON.parse(brut)
@@ -60,7 +60,7 @@ export class GardeRedaction {
       return this.luesIci.size
         ? `Tu as lu ${this.luesIci.size} source(s) dans cette conversation (${[...this.luesIci].join(', ')}) mais tu n'en cites aucune. ` +
           'Renseigne `sources` avec celles qui ont servi.'
-        : "Tu n'as consulté aucune source. Cherche (`rechercher_web`), ouvre les pages retenues avec `consulter_source`, " +
+        : "Tu n'as consulté aucune source. Cherche (WebSearch), ouvre les pages retenues avec `consulter_source`, " +
           "puis rédige. Si Nicolas a explicitement demandé un texte sans recherche, passe `sans_source: true` — " +
           'le document portera alors un avertissement.'
     }
@@ -85,12 +85,9 @@ export class GardeRedaction {
     return null
   }
 
-  /**
-   * Faut-il refuser cet appel ? Rend la raison du refus, en français, ou `null`.
-   * Appelée juste avant d'exécuter l'outil.
-   */
   verifier(toolName, input) {
-    const nom = String(toolName || '').replace(/^mcp__redacteur__/, '')
+    if (!toolName.startsWith(PREFIXE)) return null
+    const nom = toolName.slice(PREFIXE.length)
     const i = input || {}
 
     switch (nom) {
@@ -100,10 +97,32 @@ export class GardeRedaction {
       case 'consulter_source':
         return /^https?:\/\//i.test(String(i.url || '').trim())
           ? null
-          : `« ${i.url} » n'est pas une adresse http(s). Pour un fichier du disque, utilise \`lire_fichier\`.`
+          : `« ${i.url} » n'est pas une adresse http(s). Pour un fichier local, utilise l'outil Read.`
 
       default:
         return null
+    }
+  }
+
+  /** Configuration `hooks` passée à query(). */
+  hooks() {
+    const refuser = (raison) => ({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: raison,
+      },
+    })
+    return {
+      PreToolUse: [
+        {
+          matcher: `${PREFIXE}.*`,
+          hooks: [async (entree) => {
+            const raison = this.verifier(entree?.tool_name, entree?.tool_input)
+            return raison ? refuser(raison) : { continue: true }
+          }],
+        },
+      ],
     }
   }
 }

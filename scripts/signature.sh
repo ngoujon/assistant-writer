@@ -2,13 +2,13 @@
 # Crée, une fois pour toutes, une identité de signature locale pour cette app,
 # et écrit son nom sur la sortie standard (« - » = signature ad hoc, en repli).
 #
-# Pourquoi : macOS accorde ses autorisations d'après la signature du programme —
-# l'accès au réseau local en particulier, sans lequel l'app ne peut pas joindre le
-# serveur de modèles s'il tourne sur une autre machine. Une signature « ad hoc »
-# change à chaque reconstruction : macOS redemanderait tout à chaque version.
+# Pourquoi : Claude Code range ses identifiants dans le trousseau macOS, qui
+# autorise un programme d'après sa signature. Une signature « ad hoc » change à
+# chaque reconstruction : macOS redemande alors l'autorisation, et tant qu'on n'a
+# pas répondu, la session reste bloquée sur « Connexion… ».
 #
 # Avec ce certificat auto-signé, la signature ne bouge plus d'une version à
-# l'autre : l'autorisation donnée une fois vaut pour toutes les suivantes.
+# l'autre : le « Toujours autoriser » donné une fois vaut pour toutes les suivantes.
 set -euo pipefail
 
 NOM="${1:-Assistant Redacteur (signature locale)}"

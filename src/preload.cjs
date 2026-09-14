@@ -2,7 +2,6 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('redacteur', {
   init: () => ipcRenderer.invoke('app:init'),
-  modeles: () => ipcRenderer.invoke('app:modeles'),
   send: (text) => ipcRenderer.send('chat:send', text),
   interrupt: () => ipcRenderer.send('chat:interrupt'),
   setConfig: (patch) => ipcRenderer.send('chat:config', patch),

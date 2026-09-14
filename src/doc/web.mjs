@@ -29,9 +29,6 @@ function codePoint(n) {
 
 const bloc = (nom) => new RegExp(`<${nom}\\b[^>]*>[\\s\\S]*?</${nom}>`, 'gi')
 
-/** Du texte destiné à être imprimé tel quel : ni balise, ni espaces en cascade. */
-const sansHtml = (s) => String(s).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-
 /** Ce qui n'est jamais du contenu : on l'enlève avant tout le reste. */
 function degraisser(html) {
   let s = html
@@ -86,10 +83,7 @@ function meta(html, ...cles) {
     const re = new RegExp(`<meta[^>]+(?:property|name|itemprop)=["']${cle}["'][^>]*>`, 'i')
     const balise = html.match(re)?.[0]
     const valeur = balise?.match(/content=["']([^"']*)["']/i)?.[1]
-    // Certains sites (les wikis, surtout) glissent des balises dans leurs métadonnées,
-    // échappées : il faut donc décoder AVANT d'ôter les balises, sinon elles
-    // réapparaissent une fois décodées. Un titre s'imprime dans la bibliographie.
-    if (valeur?.trim()) return sansHtml(decoderEntites(valeur)) || null
+    if (valeur?.trim()) return decoderEntites(valeur.trim())
   }
   return null
 }
@@ -137,8 +131,8 @@ export function urlsDuTexte(texte) {
 }
 
 /**
- * Va chercher la page. Un PDF n'est pas mis à plat ici : il est enregistré sur le
- * disque et le chemin est rendu — `doc/pdf.mjs` en extrait ensuite le texte.
+ * Va chercher la page. Un PDF n'est pas mis à plat : il est enregistré sur le
+ * disque et le chemin est rendu — l'outil `Read` de Claude Code sait le lire.
  * @returns {Promise<{url:string,url_finale:string,type:string,titre:string,editeur:string,auteur:?string,date_publication:?string,texte:string,fichier:?string,tronquee:boolean,taille:number}>}
  */
 export async function recupererPage(url, { timeout = 30000, maxCaracteres = 60000 } = {}) {
@@ -202,7 +196,7 @@ export async function recupererPage(url, { timeout = 30000, maxCaracteres = 6000
 
   const titre = estHtml
     ? (meta(brut, 'og:title', 'twitter:title')
-      || sansHtml(decoderEntites(brut.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || ''))
+      || decoderEntites(brut.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.trim() || '')
       || hote(urlFinale) || urlFinale)
     : (hote(urlFinale) || urlFinale)
 

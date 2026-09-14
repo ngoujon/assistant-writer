@@ -1,9 +1,8 @@
 // Plusieurs conversations qui travaillent en même temps.
 //
-// Une session = une conversation avec le modèle local. On en laisse deux tourner de
-// front : au-delà, la machine qui héberge le modèle sature et les deux recherches
-// avancent moins vite que si elles s'étaient suivies. Les demandes suivantes attendent
-// leur tour, et partent dès qu'une place se libère.
+// Une session = un processus Claude Code. On en laisse deux tourner de front :
+// au-delà, la machine rame et les recherches se marchent dessus. Les demandes
+// suivantes attendent leur tour, et partent dès qu'une place se libère.
 //
 // Le point important : **naviguer n'interrompt rien**. Changer de conversation ne
 // fait que changer ce qu'on regarde ; ce qui tourne continue de tourner, et son

@@ -67,29 +67,13 @@
       <div class="colonne">
     <section id="settings" class="panneau hidden">
       <label class="row">
-        <span>Modèle local</span>
-        <select id="model"></select>
-      </label>
-      <label class="row">
-        <span>Serveur</span>
-        <input type="text" id="serveur" spellcheck="false" autocomplete="off" placeholder="http://localhost:1234/v1" />
-      </label>
-      <div class="boutons">
-        <button id="btn-modeles" class="link-btn">Relire la liste des modèles</button>
-        <span id="etat-serveur" class="chemin"></span>
-      </div>
-      <label class="row">
-        <span>Accès web</span>
-        <select id="hors-ligne">
-          <option value="non">Recherche et lecture de pages autorisées</option>
-          <option value="oui">Hors ligne — rien ne sort de cette machine</option>
+        <span>Modèle</span>
+        <select id="model">
+          <option value="claude-opus-5">Opus 5 — le plus fin</option>
+          <option value="claude-sonnet-5">Sonnet 5 — plus rapide</option>
+          <option value="claude-haiku-4-5">Haiku 4.5 — express</option>
         </select>
       </label>
-      <label class="row">
-        <span>SearXNG (facultatif)</span>
-        <input type="text" id="searxng" spellcheck="false" autocomplete="off" placeholder="http://localhost:8888" />
-      </label>
-      <p class="note-inline">Le modèle tourne sur ton serveur : aucune requête ne part vers un service d'intelligence artificielle. Hors ligne, l'assistant n'a plus que les sources déjà lues et les fichiers du disque ; il le dit dans le document.</p>
       <label class="row">
         <span>Profondeur</span>
         <select id="profondeur">
@@ -112,7 +96,7 @@
           <option value="prudent">Me demander avant les actions sensibles</option>
         </select>
       </label>
-      <p class="note-inline">En autonomie, il mène sa recherche de bout en bout sans jamais s'arrêter pour demander. Ses appels d'outils restent visibles dans le fil, et un document supprimé part à la corbeille du Mac. En mode prudent, une carte s'ouvre avant un effacement.<br>Profondeur, langue et autonomie s'appliquent dès le message suivant, sans rien perdre de la conversation en cours.</p>
+      <p class="note-inline">En autonomie, il mène sa recherche de bout en bout sans jamais s'arrêter pour demander. Ses appels d'outils restent visibles dans le fil, et un document supprimé part à la corbeille du Mac. En mode prudent, une carte s'ouvre avant une commande, une écriture hors bibliothèque ou un effacement.<br>Changer la profondeur, la langue ou l'autonomie repart sur une conversation neuve : ces règles vivent dans les consignes de l'assistant.</p>
 
       <h4>Bibliothèque</h4>
       <div id="chemin-biblio" class="chemin"></div>

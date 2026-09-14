@@ -33,10 +33,9 @@ cp assets/icon.icns "$APP/Contents/Resources/icon.icns"
 rm -f "$APP/Contents/Resources/electron.icns"
 
 # Signature obligatoire sur Apple Silicon après modification du bundle. On signe
-# avec une identité locale stable : macOS accorde ses autorisations — l'accès au
-# réseau local, sans lequel l'app ne trouve pas le serveur de modèles — d'après la
-# signature, et une signature ad hoc change à chaque construction, donc une
-# autorisation à redonner à chaque fois.
+# avec une identité locale stable : le trousseau (où Claude Code garde ses
+# identifiants) autorise d'après la signature, et une signature ad hoc change à
+# chaque construction — donc une autorisation à redonner à chaque fois.
 IDENTITE="$(bash scripts/signature.sh)"
 codesign --force --deep --sign "$IDENTITE" "$APP"
 codesign --verify --deep "$APP"

@@ -1,9 +1,6 @@
-// Test d'intégration hors Electron : démarre une vraie session contre le serveur
-// local, vérifie qu'une page est réellement consultée et qu'un document sort de la
-// bibliothèque. Écrit dans un dossier temporaire.
-//
-// Il lui faut donc le serveur allumé (LM Studio) et un accès web. Adresse par défaut :
-// celle des réglages ; sinon `REDACTEUR_SERVEUR=http://…:1234/v1 npm run selftest`.
+// Test d'intégration hors Electron : démarre une vraie session agent, vérifie que
+// les outils de rédaction sont branchés, qu'une page est réellement consultée et
+// qu'un document sort de la bibliothèque. Écrit dans un dossier temporaire.
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -13,22 +10,8 @@ process.env.REDACTEUR_DATA_DIR = path.join(bac, 'donnees')
 process.env.REDACTEUR_BIBLIOTHEQUE = path.join(bac, 'bibliotheque')
 
 const { AgentSession } = await import('../src/agent/session.mjs')
-const { listerModeles, SERVEUR_DEFAUT, racine } = await import('../src/agent/moteur.mjs')
 const { listerDocuments } = await import('../src/doc/bibliotheque.mjs')
 const { registre } = await import('../src/doc/sources.mjs')
-
-const SERVEUR = process.env.REDACTEUR_SERVEUR || SERVEUR_DEFAUT
-let MODELE = process.env.REDACTEUR_MODELE || ''
-try {
-  const dispo = await listerModeles(SERVEUR)
-  if (!MODELE) MODELE = (dispo.find((m) => m.charge && m.outils) || dispo.find((m) => m.outils) || dispo[0])?.id
-  console.log('SERVEUR', racine(SERVEUR), '| modèles :', dispo.map((m) => m.id).join(', ') || 'aucun')
-} catch (err) {
-  console.log('SERVEUR', racine(SERVEUR), '— injoignable :', String(err?.message || err))
-  process.exit(1)
-}
-if (!MODELE) { console.log('Aucun modèle de discussion sur ce serveur.'); process.exit(1) }
-console.log('MODÈLE ', MODELE)
 
 const vu = { ready: null, texte: '', outils: [], sources: [], documents: [], perms: [], fini: false }
 
@@ -48,7 +31,7 @@ const session = new AgentSession({
     console.log('VALID. demandée pour', req.toolName, '->', req.title || '')
     return { behavior: 'deny', message: 'test automatique' }
   },
-  getConfig: () => ({ serveur: SERVEUR, model: MODELE, profondeur: 'bref', langue: 'français', autonomie: 'auto' }),
+  getConfig: () => ({ model: 'claude-sonnet-5', profondeur: 'bref', langue: 'français' }),
   ouvrirFichier: () => {},
 })
 

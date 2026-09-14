@@ -10,7 +10,7 @@ process.env.REDACTEUR_DATA_DIR = path.join(bac, 'donnees')
 process.env.REDACTEUR_BIBLIOTHEQUE = path.join(bac, 'bibliotheque')
 
 const { P } = await import('../src/doc/paths.mjs')
-const { outilsRedacteur } = await import('../src/agent/outils.mjs')
+const { serveurRedacteur } = await import('../src/agent/outils.mjs')
 const { listerDocuments } = await import('../src/doc/bibliotheque.mjs')
 
 fs.mkdirSync(path.dirname(P.registre()), { recursive: true })
@@ -22,21 +22,22 @@ fs.writeFileSync(P.registre(), JSON.stringify({
   }],
 }, null, 2))
 
-/** Construit une boîte à outils dont on pilote la réponse aux cartes de validation. */
-function serveur(reponse, options = {}) {
+/** Construit un serveur dont on pilote la réponse aux cartes de validation. */
+function serveur(reponse) {
   const demandes = []
   const signaux = []
-  const boite = outilsRedacteur({
+  const srv = serveurRedacteur({
     confirmer: async (d) => { demandes.push(d); return reponse },
     signaler: (e) => signaux.push(e),
-    modele: () => 'qwen/qwen3.8-27b',
-    ...options,
+    modele: () => 'claude-opus-5',
   })
+  const outils = srv.instance._registeredTools
   const appeler = async (nom, args) => {
-    const res = await boite.executer(nom, args)
-    try { return JSON.parse(res.texte) } catch { return res.texte }
+    const res = await outils[nom].handler(args, {})
+    const texte = res.content?.[0]?.text ?? ''
+    try { return JSON.parse(texte) } catch { return texte }
   }
-  return { appeler, demandes, signaux, boite }
+  return { appeler, demandes, signaux }
 }
 
 const DOC = {
@@ -113,53 +114,6 @@ const DOC = {
   const { appeler } = serveur(true)
   const res = await appeler('relire_source', { id: 's99' })
   assert.match(String(res), /ERREUR .*Aucune source/)
-}
-
-// 7. Les définitions passées au modèle : un nom, une description, un schéma d'objet.
-//    Un schéma mal formé fait refuser toute la requête par le serveur local.
-{
-  const { boite } = serveur(true)
-  assert.ok(boite.definitions.length >= 12)
-  for (const d of boite.definitions) {
-    assert.equal(d.type, 'function')
-    assert.match(d.function.name, /^[a-z_]+$/)
-    assert.ok(d.function.description.length > 30, `${d.function.name} : description trop courte`)
-    assert.equal(d.function.parameters.type, 'object')
-    for (const requis of d.function.parameters.required || []) {
-      assert.ok(d.function.parameters.properties[requis], `${d.function.name} : « ${requis} » exigé mais non décrit`)
-    }
-  }
-  assert.ok(boite.noms.has('rechercher_web'))
-}
-
-// 8. Un outil inconnu ne fait pas tomber la session : il revient en texte au modèle.
-{
-  const { boite } = serveur(true)
-  const res = await boite.executer('outil_imaginaire', {})
-  assert.equal(res.erreur, true)
-  assert.match(res.texte, /inconnu/)
-}
-
-// 9. Hors ligne, rien ne sort : ni recherche, ni lecture de page, et c'est dit.
-{
-  const { boite } = serveur(true, { horsLigne: () => true })
-  for (const [nom, args] of [['rechercher_web', { requete: 'pib londres' }], ['consulter_source', { url: 'https://ons.gov.uk' }]]) {
-    const res = await boite.executer(nom, args)
-    assert.equal(res.refus, true, `${nom} devrait être refusé hors ligne`)
-    assert.match(res.texte, /hors ligne/i)
-  }
-  // Le registre, lui, reste lisible : c'est tout l'intérêt du mode.
-  const reg = await boite.executer('sources_consultees', {})
-  assert.equal(reg.erreur, false)
-}
-
-// 10. Lire un fichier du disque : notes, CSV, PDF.
-{
-  const note = path.join(bac, 'note.md')
-  fs.writeFileSync(note, '# Note\n\nUn chiffre : 5,2 %.')
-  const { boite } = serveur(true)
-  const res = JSON.parse((await boite.executer('lire_fichier', { chemin: note })).texte)
-  assert.match(res.texte, /5,2 %/)
 }
 
 fs.rmSync(bac, { recursive: true, force: true })
