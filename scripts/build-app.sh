@@ -11,7 +11,7 @@ npx @electron/packager . "Assistant Redacteur" \
   --no-asar \
   --arch=arm64 \
   --icon=assets/icon.icns \
-  --app-bundle-id=com.nicolasgoujon.assistant-redacteur \
+  --app-bundle-id=com.ngoujon.assistant-redacteur \
   --app-category-type=public.app-category.productivity \
   --app-version="$(node -p "require('./package.json').version")" \
   --extend-info=assets/Info.extra.plist \
