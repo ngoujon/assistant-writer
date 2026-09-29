@@ -1,325 +1,130 @@
-# Assistant Rédacteur
+# Assistant Rédacteur — sourced research writer for macOS
 
-Une petite app macOS qui ouvre un assistant conversationnel — un agent Claude Code
-déguisé en fenêtre — dont le métier tient en une phrase : **tu donnes un sujet, il
-rend un document Markdown détaillé et sourcé.**
+A small macOS app that opens a conversational assistant — a Claude Code agent dressed up as a window — with a one-sentence job: **you give it a topic, it returns a detailed, sourced Markdown document.**
 
-C'est « Claude Code lancé dans un dossier », mais le dossier c'est ta bibliothèque :
-il cherche sur le web, **lit vraiment** les pages, rédige, et enregistre un `.md`
-dans `~/Assistant Rédacteur`. Il ne fait rien d'autre.
+Think of it as "Claude Code started in a folder", where the folder is your library: it searches the web, **actually reads** the pages, writes, and saves a `.md` file in `~/Assistant Rédacteur`. Nothing else.
 
-> Fais-moi un rapport complet sur la situation économique de Londres · Où en est la
-> réglementation européenne sur l'IA ? · Note de synthèse sur le marché du bois
-> construction · Analyse ce que dit cette page : https://…
+> *Write me a full report on London's economy · Where does EU AI regulation stand? · Briefing note on the timber construction market · Analyse this page: https://…*
 
-## Installation
+The UI and the generated documents are in French by default (English is available in the settings). It runs through the Claude Agent SDK on the Claude Code session already signed in on the machine — no API key to configure in the app.
+
+## Screenshots
+
+*The screenshots replay a scripted demo conversation (`scripts/apercu.mjs`) — no real session or personal data.*
+
+![Light theme](docs/screenshots/light.png)
+
+![Dark theme](docs/screenshots/dark.png)
+
+## Install
 
 ```bash
 npm install
-npm run install-app      # construit l'app, l'installe dans /Applications, l'épingle au Dock
+npm run install-app      # builds the app, installs it in /Applications and pins it to the Dock
 ```
 
-Un clic l'ouvre, la croix la masque (elle reste dans le Dock), `⌘Q` la quitte.
+One click opens it, the close button hides it (it stays in the Dock), `⌘Q` quits.
 
-| Raccourci | Effet |
+| Shortcut | Action |
 |---|---|
-| `↩` | envoyer |
-| `⇧↩` | nouvelle ligne |
-| `esc` | refuser la carte en attente, sinon interrompre l'agent |
-| `⌘.` | interrompre l'agent |
-| `⌘N` | nouvelle conversation |
-| `⌘L` | afficher / replier la liste des conversations |
-| `⌘D` | afficher / replier la colonne des documents |
-| `⌘0` | ramener la fenêtre à un tiers de l'écran |
-| `⌘⇧O` | ouvrir la bibliothèque dans le Finder |
+| `↩` | send |
+| `⇧↩` | new line |
+| `esc` | decline the pending card, otherwise interrupt the agent |
+| `⌘.` | interrupt the agent |
+| `⌘N` | new conversation |
+| `⌘L` | show / hide the conversation list |
+| `⌘D` | show / hide the documents column |
+| `⌘0` | reset the window to a third of the screen |
+| `⌘⇧O` | open the library in Finder |
 
-## Plusieurs sujets en parallèle
+## Several topics in parallel
 
-Un document par conversation. Le `+` en ouvre une nouvelle et découvre la **barre
-latérale** : la liste des fils, avec une **recherche** qui fouille les titres, ce que
-tu as demandé, ce qui t'a été répondu, les documents produits et les adresses lues.
+One document per conversation. `+` opens a new one and reveals the **sidebar**: the list of threads, with a **search** across titles, your requests, the answers, the produced documents and the pages read. Each thread keeps its title (written by the assistant once it understands the request — or set by you with a double-click, which then sticks), its model context and its display: coming back weeks later shows the screen exactly as it was.
 
-Chaque fil garde son titre (la première demande, remplacée par le titre du document
-dès qu'il en sort un — double-clic pour le renommer), son contexte côté modèle, et
-son affichage : revenir dessus des semaines plus tard retrouve l'écran tel qu'il
-était, sources et cartes de document comprises. `×` supprime le fil ; les documents
-qu'il a produits, eux, restent dans la bibliothèque.
+Each conversation has **its own session**. Two run at the same time; further requests wait their turn and start automatically (`MAX_EN_PARALLELE` in `src/agent/pool.mjs`). **Navigating never interrupts anything** — switching threads only changes what you look at.
 
-Dans la liste, un fil qui travaille en ce moment porte un point violet **en cours** ;
-un fil dont le dernier tour s'est arrêté avant la fin est marqué **inachevée** ou
-**interrompue** — c'est ce qu'on veut repérer d'un coup d'œil pour y revenir.
-
-Le titre du fil est **écrit par l'assistant** dès qu'il a compris la demande (trois à
-sept mots sur le sujet, pas ta formulation). Un titre que tu poses toi-même par
-double-clic est définitif : plus rien ne le recouvre.
-
-## Deux recherches en même temps
-
-Chaque conversation a **sa propre session**. Deux tournent de front ; les demandes
-suivantes attendent leur tour et partent toutes seules dès qu'une place se libère.
-Au-delà de deux, la machine rame et les recherches se marchent dessus — c'est un
-plafond, pas une limite technique (`MAX_EN_PARALLELE`, dans `src/agent/pool.mjs`).
-
-**Naviguer n'interrompt rien.** Changer de conversation ne fait que changer ce qu'on
-regarde : ce qui travaille continue, et son fil se remplit en arrière-plan. Tu le
-retrouves complet en y revenant.
-
-| État dans la liste | Ce que ça veut dire |
+| State in the list | Meaning |
 |---|---|
-| **en cours** (point violet) | une recherche tourne dans ce fil, en ce moment |
-| **en attente** | la demande est prise, elle part dès qu'une place se libère |
-| **inachevée** / **interrompue** | le dernier tour s'est arrêté — bouton ↻ pour reprendre |
+| **en cours** (purple dot) | a search is running in this thread |
+| **en attente** | queued, starts as soon as a slot frees up |
+| **inachevée** / **interrompue** | the last turn stopped — ↻ to resume |
 
-Tu peux écrire à un fil qui attend : tes messages s'accumulent et lui arrivent d'un
-bloc quand vient son tour. Écrire à un fil qui travaille déjà marche aussi — il en
-tient compte à sa prochaine respiration, sans repartir de zéro.
+## Nothing is left hanging
 
-Un fil qui ne travaille plus et qu'on ne regarde plus **rend son processus** ; son
-contexte est enregistré, il se reprend sans rien perdre.
+1. **Nothing is cut by accident**: every thread has its own session.
+2. **Automatic reconnection**: if Claude Code stops mid-way, the app reattaches the conversation to its context (two attempts) and says so in the thread.
+3. **↻ Resume** in one click, without redoing what is done.
 
-## Rien ne reste en plan
+The assistant also **publishes a first version early** and enriches it version after version, so an interrupted search always leaves something readable behind.
 
-Une recherche longue peut s'arrêter en route. Trois filets, dans cet ordre :
+## How sources are guaranteed
 
-1. **Rien n'est coupé par accident.** Chaque fil a sa session : naviguer, en ouvrir un
-   autre, en créer un nouveau — rien de tout cela ne touche à une recherche en cours.
-2. **Reconnexion automatique.** Si Claude Code s'arrête en cours de route, l'app
-   rebranche la conversation sur son contexte (deux tentatives) et le dit dans le fil.
-3. **↻ Reprendre**, à un clic — dans le fil quand un tour s'arrête, et sur la ligne de
-   tout fil resté en plan dans la liste. Ça rebranche la session sur son contexte et
-   redemande la suite, sans refaire ce qui est déjà fait.
+A language model can produce a credible bibliography without reading anything. The app makes that impossible by construction:
 
-Et surtout : l'assistant **publie une première version tôt**, dès qu'il a de quoi tenir
-un document utile, puis l'enrichit version après version. Une recherche coupée laisse
-donc toujours quelque chose de lisible derrière elle.
+1. **`WebFetch` is disabled.** The only way to open a page is the `consulter_source` tool, which downloads it, flattens it and **records it in a registry** (id, title, publisher, publication date, access date).
+2. **A deterministic guard** (`src/agent/gardes.mjs`) inspects every document before saving. Any `http(s)` address in the text that is not in the registry makes the call **fail**, listing the culprits.
+3. **The bibliography is not written by the model.** It passes ids (`s1`, `s4`…) and the app composes the "Sources" section from the registry.
+4. A page that returned **nothing** (paywall, JavaScript-only site) doesn't count as read.
+5. Citing only readings from previous conversations is refused too.
 
-À l'ouverture, l'app rouvre le dernier fil travaillé.
+Cross-checking contradictory figures, preferring primary sources and flagging stale data are handled by the instructions (`src/agent/prompt.mjs`).
 
-## Ce qui garantit les sources
+## Three columns
 
-Un modèle de langage sait produire une bibliographie crédible sans avoir rien lu.
-L'app rend ça impossible, par construction :
+The window takes **a third of the screen**, split into three equal, resizable columns: conversations (`⌘L`), the thread, and the **documents** with their versions (`⌘D`). A document **never opens by itself**; it appears in the column and belongs to the conversation that wrote it (the **Tous** tab shows the whole library).
 
-1. **`WebFetch` est désactivé.** La seule façon d'ouvrir une page est l'outil
-   `consulter_source`, qui la télécharge, la met à plat et **l'inscrit à un registre**
-   (identifiant, titre, éditeur, date de publication, date de consultation).
-2. **Un garde-fou déterministe** (`src/agent/gardes.mjs`) inspecte chaque document
-   avant enregistrement. Toute adresse `http(s)` présente dans le texte et absente du
-   registre fait **refuser** l'appel, avec la liste des coupables. Le modèle n'a pas
-   le choix : il ouvre la page, ou il retire la référence.
-3. **La bibliographie n'est pas écrite par le modèle.** Il passe des identifiants
-   (`s1`, `s4`…), l'app compose la section « Sources » à partir du registre. Un titre
-   de rapport ne peut donc pas être approximatif, ni une date de consultation inventée.
-4. Une page qui n'a **rien rendu** (mur payant, site tout en JavaScript) ne compte pas
-   comme lue : la citer est refusé.
-5. Ne citer que des lectures de conversations précédentes est refusé aussi — sur un
-   sujet qui bouge, les sources se rouvrent.
+## Edit, version, export
 
-Le reste — recouper deux chiffres contradictoires, préférer une source primaire,
-signaler une donnée trop vieille — relève des consignes (`src/agent/prompt.mjs`), pas
-du code. Les garde-fous couvrent ce qui est vérifiable mécaniquement.
+"Add a section on office real estate", "section 3 is too long": the assistant **republishes** the document and every republication creates a **new version**. Old versions go to `Versions/<document>/v2.md` — nothing is ever overwritten. Each version can be opened and exported separately, and "go back to the previous version" restores it under a new number. **Exporter…** saves a copy anywhere with the macOS save panel.
 
-## Trois colonnes, trois tiers
+## It works on its own
 
-La fenêtre fait **un tiers de l'écran** et se partage en **trois colonnes égales**.
-`⌘0` la remet à cette largeur si tu l'as bougée.
+By default the assistant **asks nothing**: it searches, reads, writes, republishes and reports at the end. The writing guards still apply, every tool call is visible in the thread and in the log, and deleting a document moves it to the macOS Trash. The **Autonomie** setting (⚙) switches to a *careful* mode that asks before shell commands, writes outside the library or deletions.
 
-| Colonne (un tiers chacune) | Contenu |
+## Documents
+
+One `.md` file per topic in `~/Assistant Rédacteur` (configurable). Nothing proprietary. A document opens on its content — title, summary, table of contents (generated from the actual headings) — and ends with the sources and an "About this document" block; a final HTML comment stores metadata for the app. A "What the sources don't say" section collects gaps, outdated figures and unresolved contradictions.
+
+> Why not `~/Documents`? macOS protects it and asks again for permission whenever the app signature changes. The home folder root isn't watched. You can still point the library to `~/Documents` in the settings.
+
+## Settings
+
+| Setting | Effect |
 |---|---|
-| **Gauche** (`⌘L`) | les conversations, avec recherche dans tout le contenu |
-| **Centre** | le fil : ce que tu demandes, ce qu'il lit, ce qu'il publie |
-| **Droite** (`⌘D`) | les **documents**, du plus récent au plus ancien, avec leurs versions |
+| **Model** | Opus 5 by default; Sonnet 5 is faster, Haiku 4.5 is brisk |
+| **Autonomy** | acts alone (default) · ask before sensitive actions |
+| **Depth** | note ~1,000 words / 3–5 sources · document ~2,500 / 6–10 · dossier ~5,000 / 12+ |
+| **Language** | French or English |
+| **Library** | folder where documents are saved |
 
-Replier une colonne latérale rend sa place aux deux autres. Les deux **poignées**
-entre les colonnes se tirent à la souris pour changer leur largeur — la largeur
-choisie est retenue, un double-clic sur la poignée revient au tiers.
+## macOS notes
 
-**Un document ne s'ouvre jamais tout seul** — ni à la publication, ni sur initiative
-de l'assistant. Il apparaît dans la colonne, tu l'ouvres quand tu veux.
+1. **The bundle name has no accent** (`Assistant Redacteur.app`): an accent in the executable path makes Electron crash at launch (`SIGTRAP`). The accented name comes back through `CFBundleDisplayName`.
+2. **Stable signature**: `scripts/signature.sh` creates a local self-signed certificate once, so the Keychain "Always allow" granted to Claude Code's credentials survives rebuilds.
+3. If the assistant stays silent, open **Conversation ▸ Ouvrir le journal de bord** (startup log and Claude Code stderr).
 
-**Un document appartient à la conversation qui l'a écrit.** La colonne ne montre que
-ceux du fil ouvert ; l'onglet **Tous** ouvre toute la bibliothèque quand tu cherches
-un vieux document. Le compteur de la barre de titre, lui, compte toujours l'ensemble.
-
-Chaque document affiche, en toutes lettres : **Ouvrir**, **Exporter…**, puis **Dans le Finder**,
-**Supprimer**, et **« 3 versions ▾ »** qui déplie l'historique — **la plus récente en
-tête**, chacune avec son propre *Ouvrir* et son *Exporter*.
-
-Dans le fil, la carte du document ne fait plus qu'annoncer ce qui vient d'être publié
-et renvoyer vers la colonne.
-
-## Retoucher, versionner, exporter
-
-Le document n'est pas un point final. « Ajoute une partie sur l'immobilier », « la
-section 3 est trop longue », « refais l'intro » : l'assistant **republie le document**,
-et chaque republication crée une **nouvelle version**.
-
-- L'ancienne version part dans `Versions/<nom-du-document>/v2.md`, à côté du document.
-  **Rien n'est écrasé** — donc rien à valider : tu retouches autant que tu veux.
-- La carte du document affiche `v3` et un bouton **Versions** : chaque version s'ouvre
-  et s'exporte séparément.
-- « Reviens à la version d'avant » : l'assistant la remet en place, sous un nouveau
-  numéro. L'état d'où l'on revient reste consultable.
-- **Exporter…** ouvre l'enregistreur macOS et dépose une copie où tu veux
-  (Téléchargements par défaut). L'original ne bouge pas de la bibliothèque.
-
-## Il travaille seul
-
-Par défaut, l'assistant **ne demande rien**. Il cherche, lit, écrit, republie et
-rend compte à la fin — pas de « veux-tu que je continue ? » au milieu d'une
-recherche. Il ne pose une question que si la demande est réellement ambiguë, et
-alors avant de partir, pas après.
-
-Ce que ça ne change pas :
-
-- **Les garde-fous de rédaction restent** : ce sont des règles, pas des permissions.
-  Un document citant une adresse non lue est refusé, en autonomie comme ailleurs.
-- **Tout reste visible** : chaque appel d'outil apparaît dans le fil, dépliable, et
-  le journal de bord en garde la trace (`Conversation ▸ Ouvrir le journal de bord`).
-- **Rien n'est irréversible** : republier archive au lieu d'écraser, et un document
-  supprimé part à la **corbeille du Mac**, pas au néant.
-
-Le réglage **Autonomie** (⚙) revient au mode `prudent` : une carte de validation
-s'ouvre alors avant une commande shell, une écriture hors bibliothèque ou un
-effacement. Le changer repart sur une conversation neuve.
-
-## Les documents
-
-Un fichier `.md` par sujet, dans `~/Assistant Rédacteur` (changeable dans les
-réglages ⚙). Rien de propriétaire : ouvre-les avec n'importe quel éditeur.
-
-> Pourquoi pas `~/Documents` ? macOS y protège l'accès et redemande l'autorisation
-> chaque fois que la signature de l'app change — donc à chaque reconstruction. La
-> racine du dossier personnel n'est pas surveillée : aucune boîte de dialogue, jamais.
-> Tu peux quand même pointer la bibliothèque vers `~/Documents` dans les réglages.
-
-Un document s'ouvre sur ce qu'il dit, pas sur sa fiche technique : titre, résumé,
-sommaire. Les informations de production ferment le fichier.
-
-```markdown
-# Situation économique de Londres — état des lieux, août 2026
-
-Londres traverse une phase de croissance inégale : la finance tire le PIB pendant
-que l'emploi se dégrade à l'est. Ce document fait le point au 29 août 2026.
-
-## Sommaire
-
-- [En bref](#en-bref)
-- [Le marché du travail se tend](#le-marché-du-travail-se-tend)
-  - [Les services financiers](#les-services-financiers)
-- [Ce que les sources ne disent pas](#ce-que-les-sources-ne-disent-pas)
-
-## En bref
-
-- Croissance de **1,4 %** au T2 2026 ([ONS](https://…)), portée à 70 % par la finance.
-…
-
-## Ce que les sources ne disent pas
-…
-
----
-
-## Sources
-
-1. **GDP, UK regions and countries** — ONS — publié le 11 juin 2026
-   <https://www.ons.gov.uk/…>
-   *consultée le 29 août 2026*
-
----
-
-## À propos de ce document
-
-- **Version 3** — mise à jour le 29 août 2026
-- Créé le 21 août 2026
-- 9 sources consultées
-- Rédigé par l'Assistant Rédacteur (claude-opus-5)
-
-<!-- assistant-redacteur: {"titre":"…","version":3,"sources":9,…} -->
-```
-
-Le **sommaire** est composé par l'application à partir des titres réellement présents :
-une table des matières ne peut donc pas mentir. Le **commentaire final** est invisible
-à la lecture et sert à l'app à retrouver la version d'un document sans le relire.
-
-La section « Ce que les sources ne disent pas » n'est pas décorative : c'est là que
-se rangent les trous, les chiffres périmés et les contradictions non tranchées.
-
-## Réglages
-
-| Réglage | Effet |
-|---|---|
-| **Modèle** | Opus 5 par défaut. Sonnet 5 va plus vite, Haiku 4.5 est expéditif. |
-| **Autonomie** | `Il agit seul` (défaut) · `Me demander avant les actions sensibles` |
-| **Profondeur** | `Note` ~1 000 mots / 3-5 sources · `Document` ~2 500 mots / 6-10 · `Dossier` ~5 000 mots / 12+ |
-| **Langue** | français ou anglais |
-| **Bibliothèque** | le dossier où atterrissent les documents |
-
-Changer la profondeur ou la langue repart sur une conversation neuve : ces règles
-vivent dans les consignes de l'assistant.
-
-## Mettre à jour un document
-
-« Reprends mon rapport sur Londres » : il le relit, **rouvre les sources**, réécrit,
-et demande confirmation avant d'écraser l'ancienne version. La date de création est
-conservée, `mis_a_jour_le` avance.
-
-## Ce qu'il peut faire d'autre
-
-Il tourne sur ta machine avec Bash, la lecture/écriture de fichiers et la recherche
-web. Il peut donc lire un PDF que tu lui donnes, dépouiller un CSV, ou partir d'un
-document déjà dans la bibliothèque. Toute action en dehors de la bibliothèque
-(commande shell, écriture d'un fichier ailleurs) passe par une carte de validation.
-
-## macOS : signature, trousseau, autorisations
-
-Trois pièges que l'app désamorce, et qu'il vaut mieux connaître si tu la reconstruis :
-
-1. **Le bundle porte un nom sans accent** (`Assistant Redacteur.app`). Un accent dans
-   le chemin de l'exécutable ou d'un helper fait planter Electron au lancement —
-   `SIGTRAP`, sans message. Le nom accentué revient par `CFBundleDisplayName` : le
-   Finder, le Dock et les menus affichent bien « Assistant Rédacteur ».
-2. **La signature est stable.** Claude Code garde ses identifiants dans le trousseau
-   macOS, qui autorise un programme d'après sa signature. Une signature *ad hoc*
-   change à chaque construction : macOS redemanderait l'autorisation à chaque
-   nouvelle version. `scripts/signature.sh` crée une fois un certificat auto-signé
-   local et `build-app.sh` s'en sert — le « Toujours autoriser » donné une fois vaut
-   pour toutes les versions suivantes.
-3. **La bibliothèque évite `~/Documents`**, protégé par macOS (voir plus haut).
-
-Si l'assistant reste muet après une demande, ouvre **Conversation ▸ Ouvrir le journal
-de bord** : l'app y écrit son démarrage et la sortie d'erreur de Claude Code. Au bout
-de 30 secondes sans réponse, elle le dit aussi dans le fil.
-
-> À savoir : en entrée continue, Claude Code n'envoie **rien** — pas même son message
-> d'initialisation — tant qu'il n'a pas reçu une première demande. La fenêtre affiche
-> donc « prêt » dès l'ouverture ; la session s'établit vraiment au premier message.
-
-## Développement
+## Development
 
 ```bash
-npm start          # lance l'app depuis les sources
-npm test           # extraction, garde-fous, bibliothèque, outils, conversations, sessions, autonomie
-npm run selftest   # vraie session agent : consulte une page et écrit un document
-npm run charge     # demande lourde menée jusqu'au bout, avec relance automatique
-npx electron scripts/apercu.mjs   # rejoue une conversation type et capture l'interface
+npm start          # run the app from source
+npm test           # extraction, guards, library, tools, conversations, sessions, autonomy
+npm run selftest   # real agent session: reads a page and writes a document
+npm run charge     # heavy request run to completion with automatic resume
+npx electron scripts/apercu.mjs   # replay a demo conversation and capture the UI
 ```
 
-| Fichier | Rôle |
+| File | Role |
 |---|---|
-| `src/main.mjs` | fenêtre, réglages, IPC, cartes de validation |
-| `src/agent/session.mjs` | la boucle Claude Agent SDK |
-| `src/agent/prompt.mjs` | les consignes : méthode, forme du document, ton |
-| `src/agent/outils.mjs` | les outils MCP (consulter, rédiger, bibliothèque) |
-| `src/agent/gardes.mjs` | les refus déterministes : on ne cite que ce qu'on a lu |
-| `src/agent/pool.mjs` | deux sessions de front, une file d'attente, zéro interruption |
-| `src/doc/conversations.mjs` | les fils : titre, recherche, affichage rejouable |
-| `src/doc/journal.mjs` | le journal de bord, seule trace quand l'app est lancée du Dock |
-| `scripts/signature.sh` | l'identité de signature locale, stable d'une version à l'autre |
-| `src/doc/web.mjs` | téléchargement et mise à plat des pages |
-| `src/doc/sources.mjs` | le registre des sources consultées |
-| `src/doc/bibliotheque.mjs` | les fichiers `.md` : en-tête, corps, bibliographie |
-| `scripts/test-gardes.mjs` | les douze cas que le garde-fou doit refuser ou laisser passer |
+| `src/main.mjs` | window, settings, IPC, confirmation cards |
+| `src/agent/session.mjs` | the Claude Agent SDK loop |
+| `src/agent/prompt.mjs` | instructions: method, document shape, tone |
+| `src/agent/outils.mjs` | MCP tools (read source, write document, library) |
+| `src/agent/gardes.mjs` | deterministic refusals: only cite what was read |
+| `src/agent/pool.mjs` | two concurrent sessions, a queue, no interruptions |
+| `src/doc/conversations.mjs` | threads: title, search, replayable display |
+| `src/doc/journal.mjs` | the log, the only trace when launched from the Dock |
+| `src/doc/web.mjs` | page download and flattening |
+| `src/doc/sources.mjs` | registry of consulted sources |
+| `src/doc/bibliotheque.mjs` | `.md` files: header, body, bibliography |
 
-Les données (registre, texte des sources, réglages) vivent dans
-`~/Library/Application Support/Assistant Rédacteur`. Les documents, eux, restent
-chez toi, dans `~/Documents`.
+App data (source registry, source texts, settings) lives in `~/Library/Application Support/Assistant Rédacteur`; documents stay in your library folder.
