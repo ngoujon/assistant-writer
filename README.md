@@ -34,7 +34,9 @@ One click opens it, the close button hides it (it stays in the Dock), `⌘Q` qui
 | `⌘N` | new conversation |
 | `⌘L` | show / hide the conversation list |
 | `⌘D` | show / hide the documents column |
-| `⌘0` | reset the window to a third of the screen |
+| `⌘+` / `⌘-` | zoom in / out |
+| `⌘0` | actual size |
+| `⌥⌘0` | reset the window to a third of the screen |
 | `⌘⇧O` | open the library in Finder |
 
 ## Several topics in parallel
