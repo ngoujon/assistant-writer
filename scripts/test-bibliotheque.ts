@@ -8,8 +8,8 @@ const bac = fs.mkdtempSync(path.join(os.tmpdir(), 'redacteur-test-'))
 process.env.REDACTEUR_DATA_DIR = path.join(bac, 'donnees')
 process.env.REDACTEUR_BIBLIOTHEQUE = path.join(bac, 'bibliotheque')
 
-const { P } = await import('../src/doc/paths.mjs')
-const bib = await import('../src/doc/bibliotheque.mjs')
+const { P } = await import('../src/doc/paths.ts')
+const bib = await import('../src/doc/bibliotheque.ts')
 
 // Un registre de sources factice : on teste la composition, pas le réseau.
 fs.mkdirSync(path.dirname(P.registre()), { recursive: true })

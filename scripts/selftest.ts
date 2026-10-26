@@ -4,16 +4,27 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import type { EvenementAgent } from '../src/agent/session.ts'
+import type { DocumentEcrit } from '../src/doc/bibliotheque.ts'
+import type { Source } from '../src/doc/sources.ts'
 
 const bac = fs.mkdtempSync(path.join(os.tmpdir(), 'redacteur-selftest-'))
 process.env.REDACTEUR_DATA_DIR = path.join(bac, 'donnees')
 process.env.REDACTEUR_BIBLIOTHEQUE = path.join(bac, 'bibliotheque')
 
-const { AgentSession } = await import('../src/agent/session.mjs')
-const { listerDocuments } = await import('../src/doc/bibliotheque.mjs')
-const { registre } = await import('../src/doc/sources.mjs')
+const { AgentSession } = await import('../src/agent/session.ts')
+const { listerDocuments } = await import('../src/doc/bibliotheque.ts')
+const { registre } = await import('../src/doc/sources.ts')
 
-const vu = { ready: null, texte: '', outils: [], sources: [], documents: [], perms: [], fini: false }
+const vu = {
+  ready: null as Extract<EvenementAgent, { k: 'ready' }> | null,
+  texte: '',
+  outils: [] as string[],
+  sources: [] as Source[],
+  documents: [] as DocumentEcrit[],
+  perms: [] as string[],
+  fini: false,
+}
 
 const session = new AgentSession({
   emit: (e) => {

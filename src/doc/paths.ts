@@ -39,39 +39,39 @@ let root = defaultRoot()
 let bibliotheque = defaultBibliotheque()
 
 /** Electron appelle ceci au démarrage avec son propre userData. */
-export function setDataRoot(dir) {
+export function setDataRoot(dir: string): void {
   root = dir
   ensureDirs()
 }
 
 /** Nicolas peut ranger sa bibliothèque où il veut (réglages ⚙). */
-export function setBibliotheque(dir) {
+export function setBibliotheque(dir: string | null | undefined): void {
   if (!dir) return
   bibliotheque = path.resolve(dir)
   ensureDirs()
 }
 
-export function dataRoot() { return root }
-export function bibliothequeParDefaut() { return defaultBibliotheque() }
+export function dataRoot(): string { return root }
+export function bibliothequeParDefaut(): string { return defaultBibliotheque() }
 
 export const P = {
   /** Un fichier par conversation : métadonnées et fil rejouable. */
-  conversations: () => path.join(root, 'conversations'),
-  conversation: (id) => path.join(root, 'conversations', `${id}.json`),
+  conversations: (): string => path.join(root, 'conversations'),
+  conversation: (id: string): string => path.join(root, 'conversations', `${id}.json`),
   /** Registre des pages réellement consultées : la seule base citable. */
-  registre: () => path.join(root, 'sources', 'registre.json'),
+  registre: (): string => path.join(root, 'sources', 'registre.json'),
   /** Texte brut de chaque source, conservé pour pouvoir la relire sans réseau. */
-  source: (id) => path.join(root, 'sources', `${id}.txt`),
+  source: (id: string): string => path.join(root, 'sources', `${id}.txt`),
   /** Fichiers téléchargés qui ne sont pas du texte (PDF…). */
-  pieces: () => path.join(root, 'sources', 'pieces'),
-  bibliotheque: () => bibliotheque,
-  document: (nom) => path.join(bibliotheque, nom),
+  pieces: (): string => path.join(root, 'sources', 'pieces'),
+  bibliotheque: (): string => bibliotheque,
+  document: (nom: string): string => path.join(bibliotheque, nom),
   /** Les versions précédentes d'un document, rangées à côté de lui. */
-  versions: (nom) => path.join(bibliotheque, VERSIONS, String(nom).replace(/\.md$/, '')),
+  versions: (nom: string): string => path.join(bibliotheque, VERSIONS, String(nom).replace(/\.md$/, '')),
 }
 
 /** Le dossier de données : jamais protégé, on peut le créer n'importe quand. */
-export function ensureDonnees() {
+export function ensureDonnees(): void {
   for (const dir of [root, path.join(root, 'sources'), P.pieces(), P.conversations()]) {
     try { fs.mkdirSync(dir, { recursive: true }) } catch {}
   }

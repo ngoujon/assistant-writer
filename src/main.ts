@@ -1,23 +1,62 @@
 import { app, BrowserWindow, ipcMain, shell, dialog, Menu, nativeTheme, screen } from 'electron'
+import type { Input, Rectangle } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { setDataRoot, setBibliotheque, bibliothequeParDefaut, P } from './doc/paths.mjs'
-import { AgentSession } from './agent/session.mjs'
-import { Pool, MAX_EN_PARALLELE } from './agent/pool.mjs'
-import { PROMPT_VERSION } from './agent/prompt.mjs'
+import { setDataRoot, setBibliotheque, bibliothequeParDefaut, P } from './doc/paths.ts'
+import { AgentSession } from './agent/session.ts'
+import { Pool, MAX_EN_PARALLELE } from './agent/pool.ts'
+import type { EtatFil } from './agent/pool.ts'
+import { PROMPT_VERSION } from './agent/prompt.ts'
 import {
   listerDocuments, lireDocument, supprimerDocument, versionsDocument, lireVersion, LISEZ_MOI,
-} from './doc/bibliotheque.mjs'
-import { registre } from './doc/sources.mjs'
-import * as Conv from './doc/conversations.mjs'
-import { tracer, cheminJournal } from './doc/journal.mjs'
+} from './doc/bibliotheque.ts'
+import { registre } from './doc/sources.ts'
+import * as Conv from './doc/conversations.ts'
+import type { Conversation, FilConversation, ResumeConversation } from './doc/conversations.ts'
+import { tracer, cheminJournal } from './doc/journal.ts'
+import type { EvenementAgent, DemandePermission, ReponsePermission } from './agent/session.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-const CONFIG_DEFAUT = {
+interface Config {
+  model: string
+  profondeur: string
+  langue: string
+  autonomie: 'auto' | 'prudent'
+  bibliotheque: string | null
+  barreVisible: boolean
+  docsVisible: boolean
+  largeurBarre: number | null
+  largeurDocs: number | null
+  porteeDocs: Portee
+  bounds: Partial<Rectangle> | null
+  zoom: number
+  conversation: string | null
+  promptVersion: number
+  elargieBarre: boolean
+  elargieDocs: boolean
+  largeurTiers: boolean
+  // Réglages retirés, effacés au chargement s'ils traînent encore dans le fichier.
+  ouvrirAuto?: unknown
+  serveur?: unknown
+  horsLigne?: unknown
+  searxng?: unknown
+}
+
+type Portee = 'conversation' | 'tous'
+
+/** Le fil ouvert, tel que la fenêtre le connaît. */
+type Courante = FilConversation | Conversation
+
+type EvenementsFil = FilConversation['evenements']
+
+/** Ce qui part vers la fenêtre : les événements des sessions, et ceux de l'app. */
+type Evenement = EvenementAgent | { k: string, [cle: string]: unknown }
+
+const CONFIG_DEFAUT: Config = {
   model: 'claude-opus-5',
-  // Longueur et nombre de sources visés. Voir agent/prompt.mjs.
+  // Longueur et nombre de sources visés. Voir agent/prompt.ts.
   profondeur: 'standard',
   langue: 'français',
   // « auto » : l'assistant mène son travail seul, sans rien faire valider.
@@ -42,18 +81,19 @@ const CONFIG_DEFAUT = {
   largeurTiers: false,
 }
 
-let config = { ...CONFIG_DEFAUT }
+let config: Config = { ...CONFIG_DEFAUT }
 let configPath = ''
-let win = null
-let pool = null
+let win: BrowserWindow | null = null
+/** Créé au démarrage, avant tout message : les gestionnaires le trouvent toujours prêt. */
+let pool!: Pool
 let quitting = false
 
 /** La conversation regardée dans la fenêtre. Les autres continuent sans elle. */
-let courante = null
+let courante: Courante | null = null
 /** Les règles ont changé : on n'essaie pas de reprendre les fils d'avant. */
 let resumeInterdit = false
 
-const permissionsEnAttente = new Map()
+const permissionsEnAttente = new Map<string, (reponse: ReponsePermission) => void>()
 let seqPermission = 0
 
 // ------------------------------------------------------------------ config
@@ -85,11 +125,12 @@ function loadConfig() {
   delete config.horsLigne
   delete config.searxng
   // Des dimensions enregistrées incomplètes donneraient une fenêtre minuscule.
-  if (config.bounds && !(config.bounds.width > 0 && config.bounds.height > 0)) {
+  const { width = 0, height = 0 } = config.bounds || {}
+  if (config.bounds && !(width > 0 && height > 0)) {
     config.bounds = {
       ...config.bounds,
-      width: config.bounds.width > 0 ? config.bounds.width : voulue.width,
-      height: config.bounds.height > 0 ? config.bounds.height : voulue.height,
+      width: width > 0 ? width : voulue.width,
+      height: height > 0 ? height : voulue.height,
     }
   }
   saveConfig()
@@ -100,7 +141,7 @@ function loadConfig() {
  * colonnes égales : conversations, fil, documents. Plancher à 480 px pour un
  * petit écran, où les colonnes latérales se replient de toute façon.
  */
-function boundsParDefaut() {
+function boundsParDefaut(): Partial<Rectangle> & { width: number, height: number } {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
   return {
     width: Math.max(480, Math.round(width / 3)),
@@ -108,7 +149,7 @@ function boundsParDefaut() {
   }
 }
 
-let saveTimer = null
+let saveTimer: NodeJS.Timeout | undefined
 function saveConfig() {
   clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
@@ -141,7 +182,7 @@ function ensureBibliotheque() {
 
 function createWindow() {
   const { width, height, x, y } = config.bounds || boundsParDefaut()
-  win = new BrowserWindow({
+  const fenetre = new BrowserWindow({
     width, height, x, y,
     minWidth: 420,
     minHeight: 520,
@@ -159,35 +200,37 @@ function createWindow() {
       nodeIntegration: false,
     },
   })
+  win = fenetre
 
-  win.webContents.on('did-start-loading', () => { rendererPret = false })
+  fenetre.webContents.on('did-start-loading', () => { rendererPret = false })
   // Un changement de page remet le zoom à zéro : on le repose à chaque chargement.
-  win.webContents.on('did-finish-load', () => win.webContents.setZoomLevel(config.zoom || 0))
-  win.webContents.on('before-input-event', (e, input) => {
+  fenetre.webContents.on('did-finish-load', () => fenetre.webContents.setZoomLevel(config.zoom || 0))
+  fenetre.webContents.on('before-input-event', (e, input) => {
     const crans = zoomDeTouche(input)
     if (crans === null) return
     e.preventDefault()
     if (crans === 0) appliquerZoom(0)
     else zoomer(crans)
   })
-  win.loadFile(path.join(__dirname, 'renderer', 'index.html'))
-  win.once('ready-to-show', () => win.show())
+  fenetre.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+  fenetre.once('ready-to-show', () => fenetre.show())
 
-  win.on('close', (e) => {
-    if (!quitting) { e.preventDefault(); win.hide() }
+  fenetre.on('close', (e) => {
+    if (!quitting) { e.preventDefault(); fenetre.hide() }
   })
   const memoriser = () => {
     if (!win || win.isDestroyed() || win.isMinimized()) return
     config.bounds = win.getBounds()
     saveConfig()
   }
-  win.on('resize', memoriser)
-  win.on('move', memoriser)
+  fenetre.on('resize', memoriser)
+  fenetre.on('move', memoriser)
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  fenetre.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }
   })
+  return fenetre
 }
 
 // ------------------------------------------------------------------- zoom
@@ -197,14 +240,14 @@ function createWindow() {
 const ZOOM_MIN = -4
 const ZOOM_MAX = 6
 
-function appliquerZoom(crans) {
+function appliquerZoom(crans: number) {
   const n = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(crans)))
   config.zoom = n
   if (win && !win.isDestroyed()) win.webContents.setZoomLevel(n)
   saveConfig()
 }
 
-function zoomer(delta) {
+function zoomer(delta: number) {
   appliquerZoom((config.zoom || 0) + delta)
 }
 
@@ -213,7 +256,7 @@ function zoomer(delta) {
  * français demande Maj), ⌘−, ⌘0 et le pavé numérique. Un menu ne porte qu'un
  * raccourci, d'où ce rattrapage. Renvoie +1, -1, 0 (taille réelle) ou null.
  */
-function zoomDeTouche(input) {
+function zoomDeTouche(input: Input): number | null {
   if (input.type !== 'keyDown' || !(input.meta || input.control) || input.alt) return null
   const { key, code } = input
   if (key === '+' || key === '=' || code === 'NumpadAdd') return +1
@@ -225,9 +268,9 @@ function zoomDeTouche(input) {
 // Le renderer n'écoute qu'après son chargement : on met les événements de
 // démarrage en attente pour ne pas perdre l'état de connexion.
 let rendererPret = false
-const enAttente = []
+const enAttente: Evenement[] = []
 
-function emit(evt) {
+function emit(evt: Evenement) {
   if (!rendererPret) {
     enAttente.push(evt)
     if (enAttente.length > 200) enAttente.shift()
@@ -249,9 +292,9 @@ function viderAttente() {
 // reprendre le contexte du modèle, pas ce qu'on avait sous les yeux.
 
 /** Le texte en cours de frappe du modèle, par fil : plusieurs écrivent à la fois. */
-const tampons = new Map()
+const tampons = new Map<string, string>()
 
-function viderTampon(convId) {
+function viderTampon(convId: string) {
   const t = (tampons.get(convId) || '').trim()
   tampons.delete(convId)
   if (t) majListe(Conv.ajouter(convId, { k: 'texte', texte: t }))
@@ -263,7 +306,7 @@ function viderTampon(convId) {
  * Un document appartient à la conversation qui l'a écrit. Voir ceux des autres
  * fils en travaillant sur un sujet n'aide personne — d'où le tri par défaut.
  */
-function documentsAffiches(portee = config.porteeDocs, convId = courante?.id) {
+function documentsAffiches(portee: Portee = config.porteeDocs, convId: string | undefined = courante?.id) {
   const tous = listerDocuments()
   if (portee === 'tous' || !convId) return tous
   const siens = new Set(Conv.documentsDe(convId))
@@ -280,17 +323,18 @@ function diffuserDocuments() {
 }
 
 /** La liste des fils, chacun portant son état réel : en cours, en attente, en plan. */
-const ETAT_VISIBLE = { travaille: 'en_cours', attend: 'en_attente' }
+const ETAT_VISIBLE: Partial<Record<EtatFil, string>> = { travaille: 'en_cours', attend: 'en_attente' }
 
-function listeConversations(recherche) {
-  const etats = pool ? pool.etats() : new Map()
+function listeConversations(recherche?: string) {
+  const etats = pool ? pool.etats() : new Map<string, EtatFil>()
   return Conv.lister(recherche).map((c) => {
-    const vif = ETAT_VISIBLE[etats.get(c.id)]
+    const etat = etats.get(c.id)
+    const vif = etat && ETAT_VISIBLE[etat]
     return vif ? { ...c, statut: vif } : c
   })
 }
 
-function majListe(resume) {
+function majListe(resume: ResumeConversation | null) {
   if (!resume) return
   if (resume.id === courante?.id) courante = { ...courante, ...resume }
   diffuserListe()
@@ -300,21 +344,23 @@ function diffuserListe() {
   emit({ k: 'conversations', liste: listeConversations(), courante: courante?.id || null })
 }
 
-function noterUtilisateur(convId, texte) {
+function noterUtilisateur(convId: string, texte: string) {
   viderTampon(convId)
   majListe(Conv.ajouter(convId, { k: 'user', texte }))
 }
 
 /** Un argument d'outil lisible en une ligne, pour rejouer le fil plus tard. */
-function argOutil(input) {
+function argOutil(input: unknown) {
   if (!input || typeof input !== 'object') return ''
+  const champs = input as Record<string, unknown>
   for (const k of ['url', 'query', 'titre', 'nom', 'command', 'id', 'pattern', 'file_path']) {
-    if (typeof input[k] === 'string' && input[k]) return input[k].slice(0, 200)
+    const v = champs[k]
+    if (typeof v === 'string' && v) return v.slice(0, 200)
   }
   return ''
 }
 
-function noterEvenement(convId, evt) {
+function noterEvenement(convId: string, evt: EvenementAgent) {
   switch (evt.k) {
     case 'text-start':
       viderTampon(convId)
@@ -365,7 +411,7 @@ function noterEvenement(convId, evt) {
  * toujours enregistré dans SON fil ; il n'est affiché que s'il vient du fil
  * ouvert. C'est ce qui permet à deux recherches de tourner sans se mélanger.
  */
-function routerEvenement(convId, evt) {
+function routerEvenement(convId: string, evt: EvenementAgent) {
   if (evt.k === 'ready' || evt.k === 'error') tracer('agent', convId, evt.k, evt)
 
   if (evt.k === 'ready' && evt.sessionId) Conv.memoriserSession(convId, evt.sessionId)
@@ -388,8 +434,8 @@ function routerEvenement(convId, evt) {
 
 // --------------------------------------------------------------- permission
 
-function askPermission(req) {
-  return new Promise((resolve) => {
+function askPermission(req: DemandePermission & { convId?: string }) {
+  return new Promise<ReponsePermission>((resolve) => {
     const id = `perm-${++seqPermission}`
     permissionsEnAttente.set(id, resolve)
     const onAbort = () => {
@@ -417,14 +463,14 @@ function askPermission(req) {
   })
 }
 
-function resolvePermission(id, reponse) {
+function resolvePermission(id: string, reponse: ReponsePermission) {
   const resolve = permissionsEnAttente.get(id)
   if (!resolve) return
   permissionsEnAttente.delete(id)
   resolve(reponse)
 }
 
-function refuserToutes(message) {
+function refuserToutes(message: string) {
   for (const [id, resolve] of permissionsEnAttente) {
     permissionsEnAttente.delete(id)
     resolve({ behavior: 'deny', message })
@@ -439,7 +485,7 @@ function refuserToutes(message) {
  * Ce qui travaille dans les autres fils continue de travailler — c'est tout
  * l'intérêt d'avoir plusieurs sessions. Naviguer ne coûte rien et n'annule rien.
  */
-function ouvrirConversation(id, { neuve = false } = {}) {
+function ouvrirConversation(id: string | null | undefined, { neuve = false } = {}): Courante {
   if (!neuve && id && id === courante?.id) {
     peindreConversation()
     return courante
@@ -449,28 +495,30 @@ function ouvrirConversation(id, { neuve = false } = {}) {
   if (id) viderTampon(id)
 
   const conv = (id && Conv.fil(id)) || null
-  courante = conv || Conv.creer()
-  config.conversation = courante.id
+  const ouverte: Courante = conv || Conv.creer()
+  courante = ouverte
+  config.conversation = ouverte.id
   saveConfig()
 
-  pool.afficher(courante.id)
+  pool.afficher(ouverte.id)
   peindreConversation(conv?.evenements || [])
-  return courante
+  return ouverte
 }
 
 /** L'identifiant de session à reprendre pour ce fil, s'il en a un d'exploitable. */
-function repriseDe(convId) {
+function repriseDe(convId: string) {
   if (resumeInterdit) return undefined
   return Conv.fil(convId)?.sessionId || undefined
 }
 
-function peindreConversation(evenements) {
+function peindreConversation(evenements?: EvenementsFil) {
+  if (!courante) return
   diffuserDocuments()
   emit({
     k: 'conversation',
     id: courante.id,
     titre: courante.titre || null,
-    statut: ETAT_VISIBLE[pool?.etat(courante.id)] || courante.statut || null,
+    statut: (pool && ETAT_VISIBLE[pool.etat(courante.id)]) || courante.statut || null,
     evenements: evenements || Conv.fil(courante.id)?.evenements || [],
   })
   diffuserListe()
@@ -480,7 +528,7 @@ function peindreConversation(evenements) {
  * Reprend un fil laissé en plan : on rebranche la session sur son contexte et on
  * demande la suite. C'est la sortie de secours quand un tour s'arrête tout seul.
  */
-function reprendreConversation(id) {
+function reprendreConversation(id?: string) {
   const cible = id || courante?.id
   if (!cible) return null
   const consigne = "Reprends exactement où tu t'étais arrêté, sans refaire ce qui est déjà fait. "
@@ -493,7 +541,7 @@ function reprendreConversation(id) {
  * Achemine une demande vers son fil. Si deux fils travaillent déjà, elle attend
  * son tour — et on le dit, plutôt que de laisser croire qu'il ne se passe rien.
  */
-function demander(convId, texte) {
+function demander(convId: string, texte: string) {
   noterUtilisateur(convId, texte)
   const sort = pool.envoyer(convId, texte)
   if (sort === 'attente') {
@@ -508,7 +556,7 @@ function demander(convId, texte) {
 
 // ---------------------------------------------------------------------- IPC
 
-function ouvrirFichier(chemin) {
+function ouvrirFichier(chemin: string) {
   if (chemin && fs.existsSync(chemin)) shell.openPath(chemin)
 }
 
@@ -535,12 +583,12 @@ function wireIpc() {
     }
   })
 
-  ipcMain.on('chat:send', (_e, text) => {
+  ipcMain.on('chat:send', (_e, text: string) => {
     if (!text?.trim() || !courante) return
     demander(courante.id, text.trim())
   })
   ipcMain.on('chat:interrupt', () => { if (courante) pool.interrompre(courante.id) })
-  ipcMain.on('chat:config', (_e, patch) => {
+  ipcMain.on('chat:config', (_e, patch: Partial<Config>) => {
     Object.assign(config, patch)
     saveConfig()
     if (patch.model) pool.setModel(patch.model)
@@ -551,18 +599,18 @@ function wireIpc() {
       diffuserListe()
     }
   })
-  ipcMain.on('perm:reply', (_e, { id, answer }) => resolvePermission(id, answer))
+  ipcMain.on('perm:reply', (_e, { id, answer }: { id: string, answer: ReponsePermission }) => resolvePermission(id, answer))
 
-  ipcMain.handle('conv:list', (_e, recherche) => listeConversations(recherche))
+  ipcMain.handle('conv:list', (_e, recherche?: string) => listeConversations(recherche))
   ipcMain.handle('conv:new', () => ouvrirConversation(null, { neuve: true }).id)
-  ipcMain.handle('conv:open', (_e, id) => ouvrirConversation(id).id)
-  ipcMain.handle('conv:resume', (_e, id) => reprendreConversation(id))
-  ipcMain.handle('conv:rename', (_e, { id, titre }) => {
+  ipcMain.handle('conv:open', (_e, id: string) => ouvrirConversation(id).id)
+  ipcMain.handle('conv:resume', (_e, id?: string) => reprendreConversation(id))
+  ipcMain.handle('conv:rename', (_e, { id, titre }: { id: string, titre: string }) => {
     const r = Conv.renommer(id, titre)
     if (r && courante?.id === id) courante = { ...courante, ...r }
     return listeConversations()
   })
-  ipcMain.handle('conv:delete', (_e, id) => {
+  ipcMain.handle('conv:delete', (_e, id: string) => {
     pool.oublier(id)
     Conv.supprimer(id)
     if (courante?.id === id) {
@@ -572,21 +620,21 @@ function wireIpc() {
     return listeConversations()
   })
 
-  ipcMain.handle('docs:list', (_e, portee) => documentsAffiches(portee))
-  ipcMain.handle('docs:versions', (_e, nom) => {
+  ipcMain.handle('docs:list', (_e, portee?: Portee) => documentsAffiches(portee))
+  ipcMain.handle('docs:versions', (_e, nom: string) => {
     try { return versionsDocument(nom) } catch { return [] }
   })
-  ipcMain.on('docs:open-version', (_e, { nom, numero }) => {
+  ipcMain.on('docs:open-version', (_e, { nom, numero }: { nom: string, numero: number }) => {
     try { ouvrirFichier(lireVersion(nom, numero).chemin) } catch {}
   })
 
   // Exporter, c'est sortir une copie de la bibliothèque : l'original ne bouge pas.
-  ipcMain.handle('docs:export', async (_e, { nom, numero } = {}) => {
+  ipcMain.handle('docs:export', async (_e, { nom, numero }: { nom: string, numero?: number }) => {
     try {
       const doc = lireDocument(nom)
       const source = numero ? lireVersion(nom, numero).chemin : doc.chemin
       const base = doc.nom.replace(/\.md$/, '')
-      const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      const { canceled, filePath } = await dialog.showSaveDialog(win!, {
         title: 'Exporter le document',
         defaultPath: path.join(app.getPath('downloads'), numero ? `${base}-v${numero}.md` : `${base}.md`),
         filters: [{ name: 'Markdown', extensions: ['md'] }],
@@ -596,20 +644,20 @@ function wireIpc() {
       shell.showItemInFolder(filePath)
       return { chemin: filePath }
     } catch (err) {
-      return { erreur: String(err?.message || err) }
+      return { erreur: String((err as Error)?.message || err) }
     }
   })
   ipcMain.handle('docs:sources', () => registre())
-  ipcMain.on('docs:open', (_e, nom) => {
+  ipcMain.on('docs:open', (_e, nom: string) => {
     try { ouvrirFichier(lireDocument(nom).chemin) } catch {}
   })
-  ipcMain.on('docs:reveal', (_e, nom) => {
+  ipcMain.on('docs:reveal', (_e, nom: string) => {
     try { shell.showItemInFolder(lireDocument(nom).chemin) } catch {}
   })
-  ipcMain.handle('docs:delete', async (_e, nom) => {
+  ipcMain.handle('docs:delete', async (_e, nom: string) => {
     try {
       const doc = lireDocument(nom)
-      const { response } = await dialog.showMessageBox(win, {
+      const { response } = await dialog.showMessageBox(win!, {
         type: 'warning',
         buttons: ['Supprimer', 'Annuler'],
         defaultId: 1,
@@ -626,7 +674,7 @@ function wireIpc() {
   })
 
   ipcMain.handle('app:choisir-bibliotheque', async () => {
-    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+    const { canceled, filePaths } = await dialog.showOpenDialog(win!, {
       title: 'Où ranger les documents ?',
       properties: ['openDirectory', 'createDirectory'],
       defaultPath: P.bibliotheque(),
@@ -642,7 +690,7 @@ function wireIpc() {
   })
 
   ipcMain.on('app:open-bibliotheque', () => shell.openPath(P.bibliotheque()))
-  ipcMain.on('app:open-external', (_e, url) => {
+  ipcMain.on('app:open-external', (_e, url: string) => {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url)
   })
 }
@@ -731,7 +779,7 @@ if (!app.requestSingleInstanceLock()) {
     setDataRoot(app.getPath('userData'))
     loadConfig()
     tracer('--- démarrage', app.getVersion(), '| données', app.getPath('userData'))
-    createWindow()
+    const fenetre = createWindow()
     buildMenu()
     wireIpc()
 
@@ -750,23 +798,23 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     process.on('unhandledRejection', (err) => {
-      tracer('promesse non rattrapée', String(err?.stack || err?.message || err).slice(0, 800))
-      emit({ k: 'error', message: `Agent indisponible : ${String(err?.message || err)}` })
+      tracer('promesse non rattrapée', String((err as Error)?.stack || (err as Error)?.message || err).slice(0, 800))
+      emit({ k: 'error', message: `Agent indisponible : ${String((err as Error)?.message || err)}` })
       emit({ k: 'status', state: 'idle' })
     })
 
     // Un bogue dans l'application ne doit pas la laisser à moitié démarrée sans
     // rien dire : on l'écrit au journal et on l'affiche dans le fil.
     process.on('uncaughtException', (err) => {
-      tracer('exception non rattrapée', String(err?.stack || err?.message || err).slice(0, 900))
-      emit({ k: 'error', message: `Erreur interne : ${String(err?.message || err)}` })
+      tracer('exception non rattrapée', String((err as Error)?.stack || (err as Error)?.message || err).slice(0, 900))
+      emit({ k: 'error', message: `Erreur interne : ${String((err as Error)?.message || err)}` })
       emit({ k: 'status', state: 'idle' })
     })
 
     // La bibliothèque et l'agent démarrent une fois la fenêtre à l'écran : lire un
     // dossier peut demander une autorisation à macOS, qui fige le processus le
     // temps de la réponse — sans fenêtre, l'app paraîtrait plantée.
-    win.once('ready-to-show', () => {
+    fenetre.once('ready-to-show', () => {
       tracer('fenêtre affichée')
       try {
         ensureBibliotheque()

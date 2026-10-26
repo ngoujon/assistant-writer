@@ -3,13 +3,81 @@
 // sauvegarder sans l'application.
 import fs from 'node:fs'
 import path from 'node:path'
-import { P, ensureDirs, VERSIONS } from './paths.mjs'
-import { parId, ligneBibliographie, jolieDate } from './sources.mjs'
+import { P, ensureDirs, VERSIONS } from './paths.ts'
+import { parId, ligneBibliographie, jolieDate } from './sources.ts'
 
 const TITRE_SOURCES = '## Sources'
 export const LISEZ_MOI = 'LISEZ-MOI.md'
 
-export function slug(titre) {
+/** Le bloc technique d'un document : ce qu'il faut pour le retrouver sans le relire. */
+export interface MetaDocument {
+  titre?: string
+  sujet?: string
+  cree_le?: string
+  mis_a_jour_le?: string
+  version?: number
+  sources?: number
+  mots?: number
+  modele?: string
+  restauree_depuis?: number
+  [cle: string]: unknown
+}
+
+/** Un document de la bibliothèque, tel que la liste le montre. */
+export interface InfoDocument {
+  nom: string
+  chemin: string
+  titre: string
+  sujet: string | null
+  cree_le: string
+  mis_a_jour_le: string
+  sources: number
+  version: number
+  versions: number
+  mots: number
+  octets: number
+  modifie_a: string
+}
+
+/** Un document ouvert : ses informations, son bloc technique et son texte. */
+export interface DocumentLu extends InfoDocument {
+  entete: MetaDocument
+  markdown: string
+}
+
+/** Ce que rend une écriture : le document à jour, et ce qui s'est passé. */
+export interface DocumentEcrit extends InfoDocument {
+  remplace: boolean
+  sources_citees: number
+}
+
+/** Une entrée de l'historique d'un document. */
+export interface VersionDocument {
+  numero: number
+  courante: boolean
+  chemin: string
+  mots: number
+  sources: number
+  date: string
+  modifie_a: string
+}
+
+export interface VersionLue extends VersionDocument {
+  nom: string
+  entete: MetaDocument
+  markdown: string
+}
+
+export interface DemandeEcriture {
+  titre: string
+  sujet?: string
+  markdown: string
+  sources?: string[]
+  nom?: string
+  modele?: string | null
+}
+
+export function slug(titre: unknown): string {
   return String(titre || 'document')
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
     .toLowerCase()
@@ -19,18 +87,18 @@ export function slug(titre) {
     .slice(0, 70) || 'document'
 }
 
-function aujourdhui() {
+function aujourdhui(): string {
   const d = new Date()
-  const p = (n) => String(n).padStart(2, '0')
+  const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
-export function nomFichier(titre) {
+export function nomFichier(titre: unknown): string {
   return `${aujourdhui()}-${slug(titre)}.md`
 }
 
 /** Un nom de fichier qui reste dans la bibliothèque, quoi qu'on lui donne. */
-function nomSur(nom) {
+function nomSur(nom: unknown): string {
   const base = path.basename(String(nom || '').trim())
   if (!base || base === '.' || base === '..') throw new Error('Nom de document invalide.')
   return base.endsWith('.md') ? base : `${base}.md`
@@ -47,13 +115,13 @@ const MARQUEUR = 'assistant-redacteur:'
 const RE_META = /\n?<!--\s*assistant-redacteur:\s*(\{[\s\S]*?\})\s*-->\s*$/
 const RE_APROPOS = /\n+(?:---\n+)?##\s+À propos de ce document[\s\S]*$/
 
-export function separerMeta(brut) {
+export function separerMeta(brut: unknown): { meta: MetaDocument, corps: string } {
   const texte = String(brut)
 
   // Format actuel : le bloc technique est en queue de document.
   const m = texte.match(RE_META)
   if (m) {
-    let meta = {}
+    let meta: MetaDocument = {}
     try { meta = JSON.parse(m[1]) } catch {}
     return { meta, corps: texte.slice(0, m.index).replace(RE_APROPOS, '').trimEnd() }
   }
@@ -62,7 +130,7 @@ export function separerMeta(brut) {
   // écrits ne doivent pas devenir illisibles parce que la mise en page a changé.
   const y = texte.match(/^---\n([\s\S]*?)\n---\n?/)
   if (!y) return { meta: {}, corps: texte }
-  const meta = {}
+  const meta: MetaDocument = {}
   for (const ligne of y[1].split('\n')) {
     const kv = ligne.match(/^([a-z_]+)\s*:\s*(.*)$/i)
     if (!kv) continue
@@ -74,7 +142,7 @@ export function separerMeta(brut) {
 }
 
 /** L'ancre d'un titre, à la façon de GitHub : c'est ce que suivent les liseuses. */
-export function ancre(titre) {
+export function ancre(titre: unknown): string {
   return String(titre)
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s-]/gu, '')
@@ -86,8 +154,8 @@ export function ancre(titre) {
  * Le sommaire, construit à partir des titres réellement présents. Composé ici et
  * non par le modèle : une table des matières qui ment est pire que pas de table.
  */
-export function composerSommaire(corps) {
-  const titres = []
+export function composerSommaire(corps: unknown): string {
+  const titres: { niveau: number, texte: string }[] = []
   let dansCode = false
   for (const ligne of String(corps).split('\n')) {
     if (/^\s*```/.test(ligne)) { dansCode = !dansCode; continue }
@@ -100,13 +168,14 @@ export function composerSommaire(corps) {
   return `## Sommaire\n\n${lignes.join('\n')}\n`
 }
 
-function blocAPropos(meta) {
+function blocAPropos(meta: MetaDocument): string {
+  const n = meta.sources ?? 0
   const lignes = [
     '## À propos de ce document',
     '',
     `- **Version ${meta.version}** — mise à jour le ${jolieDate(meta.mis_a_jour_le) || meta.mis_a_jour_le}`,
     `- Créé le ${jolieDate(meta.cree_le) || meta.cree_le}`,
-    `- ${meta.sources} source${meta.sources > 1 ? 's' : ''} consultée${meta.sources > 1 ? 's' : ''}`,
+    `- ${meta.sources} source${n > 1 ? 's' : ''} consultée${n > 1 ? 's' : ''}`,
   ]
   if (meta.sujet) lignes.push(`- Demande : « ${meta.sujet} »`)
   lignes.push(`- Rédigé par l'Assistant Rédacteur${meta.modele ? ` (${meta.modele})` : ''}`)
@@ -116,11 +185,11 @@ function blocAPropos(meta) {
 
 // ----------------------------------------------------------------- lecture
 
-export function compterMots(texte) {
+export function compterMots(texte: unknown): number {
   return (String(texte).match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length
 }
 
-function infoDepuisFichier(nom) {
+function infoDepuisFichier(nom: string): InfoDocument {
   const chemin = P.document(nom)
   const stat = fs.statSync(chemin)
   const brut = fs.readFileSync(chemin, 'utf8')
@@ -141,11 +210,11 @@ function infoDepuisFichier(nom) {
   }
 }
 
-export function listerDocuments() {
+export function listerDocuments(): InfoDocument[] {
   ensureDirs()
-  let noms = []
+  let noms: string[] = []
   try { noms = fs.readdirSync(P.bibliotheque()) } catch { return [] }
-  const docs = []
+  const docs: InfoDocument[] = []
   for (const nom of noms) {
     if (!nom.endsWith('.md') || nom.startsWith('.') || nom === VERSIONS) continue
     // Le mot d'accueil posé à la première ouverture n'est pas un document.
@@ -157,11 +226,11 @@ export function listerDocuments() {
   return docs.sort((a, b) => b.modifie_a.localeCompare(a.modifie_a) || b.nom.localeCompare(a.nom))
 }
 
-export function existe(nom) {
+export function existe(nom: unknown): boolean {
   try { return fs.statSync(P.document(nomSur(nom))).isFile() } catch { return false }
 }
 
-export function lireDocument(nom) {
+export function lireDocument(nom: unknown): DocumentLu {
   const fichier = nomSur(nom)
   if (!existe(fichier)) throw new Error(`Aucun document « ${fichier} » dans la bibliothèque.`)
   const brut = fs.readFileSync(P.document(fichier), 'utf8')
@@ -169,7 +238,7 @@ export function lireDocument(nom) {
   return { ...infoDepuisFichier(fichier), entete, markdown: corps }
 }
 
-export function supprimerDocument(nom) {
+export function supprimerDocument(nom: unknown): string {
   const fichier = nomSur(nom)
   fs.rmSync(P.document(fichier), { force: true })
   supprimerVersions(fichier)
@@ -182,8 +251,8 @@ export function supprimerDocument(nom) {
  * La bibliographie n'est pas écrite par le modèle : elle est composée à partir du
  * registre des sources. Une référence ne peut donc être ni approximative ni inventée.
  */
-export function composerBibliographie(ids) {
-  const lignes = []
+export function composerBibliographie(ids: Iterable<string>): string {
+  const lignes: string[] = []
   let i = 0
   for (const id of ids) {
     const s = parId(id)
@@ -195,16 +264,16 @@ export function composerBibliographie(ids) {
 }
 
 /** Retire un sommaire ou un bloc « À propos » que le modèle aurait écrit lui-même. */
-function sansSommaire(markdown) {
+function sansSommaire(markdown: string): string {
   return String(markdown).replace(/^#{2,3}\s*(Sommaire|Table des mati[eè]res)\s*\n[\s\S]*?(?=\n#{1,3}\s)/im, '')
 }
 
-function sansAPropos(markdown) {
+function sansAPropos(markdown: string): string {
   return String(markdown).replace(/\n+(?:---\n+)?#{2,3}\s+À propos de ce document[\s\S]*$/i, '\n').trimEnd()
 }
 
 /** Glisse le sommaire juste avant la première section : après le titre et le résumé. */
-function avecSommaire(corps) {
+function avecSommaire(corps: string): string {
   const sommaire = composerSommaire(corps)
   if (!sommaire) return corps
   const lignes = corps.split('\n')
@@ -214,7 +283,7 @@ function avecSommaire(corps) {
 }
 
 /** Retire la section « Sources » que le modèle aurait écrite lui-même. */
-function sansSectionSources(markdown) {
+function sansSectionSources(markdown: string): string {
   const re = /\n#{2,3}\s*(Sources|Sources consultées|Bibliographie|Références)\s*\n[\s\S]*$/i
   return String(markdown).replace(re, '\n').trimEnd()
 }
@@ -223,7 +292,7 @@ function sansSectionSources(markdown) {
  * Enregistre un document. Le corps vient du modèle ; l'en-tête et la
  * bibliographie sont composés ici.
  */
-export function ecrireDocument({ titre, sujet, markdown, sources = [], nom, modele }) {
+export function ecrireDocument({ titre, sujet, markdown, sources = [], nom, modele }: DemandeEcriture): DocumentEcrit {
   ensureDirs()
   if (!titre?.trim()) throw new Error('Un document a besoin d\'un titre.')
   if (!markdown?.trim()) throw new Error('Le document est vide.')
@@ -234,14 +303,14 @@ export function ecrireDocument({ titre, sujet, markdown, sources = [], nom, mode
   // Réécrire ne détruit rien : la version en place part d'abord aux archives.
   // C'est ce qui permet de retoucher un document en conversation sans jamais
   // avoir à demander « tu confirmes ? ».
-  const ancien = dejaLa ? separerMeta(fs.readFileSync(chemin, 'utf8')).meta : {}
+  const ancien: MetaDocument = dejaLa ? separerMeta(fs.readFileSync(chemin, 'utf8')).meta : {}
   if (dejaLa) archiver(fichier)
 
   let corps = sansSectionSources(markdown).trim()
   corps = sansSommaire(sansAPropos(corps))
   if (!/^#\s+/.test(corps.split('\n')[0] || '')) corps = `# ${titre.trim()}\n\n${corps}`
 
-  const meta = {
+  const meta: MetaDocument = {
     titre: titre.trim(),
     sujet: sujet?.trim() || undefined,
     cree_le: ancien.cree_le || aujourdhui(),
@@ -272,11 +341,11 @@ export function ecrireDocument({ titre, sujet, markdown, sources = [], nom, mode
 // Un document se retouche en conversation : chaque écriture pousse la précédente
 // dans « Versions/ », numérotée. Rien ne se perd, donc rien ne se valide.
 
-function dossierVersions(nom) {
+function dossierVersions(nom: string): string {
   return P.versions(nom)
 }
 
-function compterVersions(nom) {
+function compterVersions(nom: string): number {
   try {
     return fs.readdirSync(dossierVersions(nom)).filter((f) => /^v\d+\.md$/.test(f)).length
   } catch {
@@ -285,9 +354,9 @@ function compterVersions(nom) {
 }
 
 /** Range la version en place dans les archives, sous son propre numéro. */
-function archiver(fichier) {
+function archiver(fichier: string): string | null {
   const chemin = P.document(fichier)
-  let brut
+  let brut: string
   try { brut = fs.readFileSync(chemin, 'utf8') } catch { return null }
   const { meta: entete } = separerMeta(brut)
   const n = Number(entete.version || compterVersions(fichier) + 1) || 1
@@ -299,9 +368,9 @@ function archiver(fichier) {
 }
 
 /** L'historique d'un document : la version en place, puis les précédentes. */
-export function versionsDocument(nom) {
+export function versionsDocument(nom: unknown): VersionDocument[] {
   const fichier = nomSur(nom)
-  const out = []
+  const out: VersionDocument[] = []
   if (existe(fichier)) {
     const info = infoDepuisFichier(fichier)
     out.push({
@@ -309,7 +378,7 @@ export function versionsDocument(nom) {
       mots: info.mots, sources: info.sources, date: info.mis_a_jour_le, modifie_a: info.modifie_a,
     })
   }
-  let noms = []
+  let noms: string[] = []
   try { noms = fs.readdirSync(dossierVersions(fichier)) } catch { noms = [] }
   for (const f of noms) {
     const m = f.match(/^v(\d+)\.md$/)
@@ -330,7 +399,7 @@ export function versionsDocument(nom) {
   return out.sort((a, b) => b.numero - a.numero)
 }
 
-export function lireVersion(nom, numero) {
+export function lireVersion(nom: unknown, numero: number | string): VersionLue {
   const v = versionsDocument(nom).find((x) => x.numero === Number(numero))
   if (!v) throw new Error(`Le document « ${nomSur(nom)} » n'a pas de version ${numero}.`)
   const brut = fs.readFileSync(v.chemin, 'utf8')
@@ -343,7 +412,7 @@ export function lireVersion(nom, numero) {
  * nouveau numéro : revenir en arrière est aussi un pas en avant, et l'état d'où
  * l'on revient reste consultable.
  */
-export function restaurerVersion(nom, numero) {
+export function restaurerVersion(nom: unknown, numero: number | string): InfoDocument & { restauree_depuis: number } {
   const fichier = nomSur(nom)
   const v = lireVersion(fichier, numero)
   if (v.courante) throw new Error(`La version ${numero} est déjà celle en place.`)
@@ -351,7 +420,7 @@ export function restaurerVersion(nom, numero) {
   archiver(fichier)
   // Le texte revient tel quel ; seules les métadonnées avancent d'un cran, avec
   // la trace de ce qu'on a restauré.
-  const meta = {
+  const meta: MetaDocument = {
     ...v.entete,
     mis_a_jour_le: aujourdhui(),
     version: Number(enPlace.version || 1) + 1,
@@ -361,7 +430,7 @@ export function restaurerVersion(nom, numero) {
   return { ...infoDepuisFichier(fichier), restauree_depuis: Number(numero) }
 }
 
-export function supprimerVersions(nom) {
+export function supprimerVersions(nom: unknown): void {
   try { fs.rmSync(dossierVersions(nomSur(nom)), { recursive: true, force: true }) } catch {}
 }
 

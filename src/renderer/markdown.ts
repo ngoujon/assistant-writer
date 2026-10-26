@@ -1,10 +1,10 @@
 // Rendu Markdown minimal et sûr : on échappe tout le texte, puis on ré-introduit
 // uniquement les balises que l'on génère nous-mêmes.
 
-const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
-const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ESC[c])
+const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
+const escapeHtml = (s: unknown): string => String(s).replace(/[&<>"']/g, (c) => ESC[c] ?? c)
 
-function emphasis(text) {
+function emphasis(text: string): string {
   return escapeHtml(text)
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" data-ext>$1</a>')
     .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" data-ext>$2</a>')
@@ -15,7 +15,7 @@ function emphasis(text) {
 }
 
 // Découpe sur les backticks : les segments impairs sont du code inline.
-function inline(text) {
+function inline(text: string): string {
   const parts = String(text).split('`')
   let out = ''
   for (let i = 0; i < parts.length; i++) {
@@ -25,11 +25,11 @@ function inline(text) {
   return out
 }
 
-export function renderMarkdown(src) {
+export function renderMarkdown(src: string | null | undefined): string {
   const lines = String(src || '').replace(/\r\n/g, '\n').split('\n')
-  const html = []
+  const html: string[] = []
   let i = 0
-  let list = null
+  let list: 'ul' | 'ol' | null = null
 
   const closeList = () => {
     if (list) {
@@ -46,7 +46,7 @@ export function renderMarkdown(src) {
     if (fence) {
       closeList()
       const lang = fence[1] || ''
-      const buf = []
+      const buf: string[] = []
       i++
       while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) {
         buf.push(lines[i])

@@ -9,7 +9,7 @@ const bac = fs.mkdtempSync(path.join(os.tmpdir(), 'redacteur-conv-'))
 process.env.REDACTEUR_DATA_DIR = path.join(bac, 'donnees')
 process.env.REDACTEUR_BIBLIOTHEQUE = path.join(bac, 'bibliotheque')
 
-const C = await import('../src/doc/conversations.mjs')
+const C = await import('../src/doc/conversations.ts')
 
 // 1. Une conversation neuve n'a pas de titre : elle en prend un à la première demande.
 const a = C.creer()
@@ -42,17 +42,18 @@ assert.equal(C.lister('sources primaires')[0].id, a.id, 'et par ce qui a été r
 
 // 3 bis. Le résumé compte les documents ; documentsDe les nomme. Confondre les
 //        deux faisait planter l'ouverture d'un fil.
-assert.equal(C.lister().find((x) => x.id === a.id).documents, 1, 'le résumé donne un nombre')
+assert.equal(C.lister().find((x) => x.id === a.id)!.documents, 1, 'le résumé donne un nombre')
 assert.deepEqual(C.documentsDe(a.id), ['2026-08-29-londres.md'], 'documentsDe donne la liste')
-assert.equal(typeof C.fil(a.id).documents, 'number', 'le fil porte le même compte que le résumé')
+assert.equal(typeof C.fil(a.id)!.documents, 'number', 'le fil porte le même compte que le résumé')
 assert.deepEqual(C.documentsDe('cinconnu'), [], 'un fil inconnu ne rend pas null')
 assert.doesNotThrow(() => new Set(C.documentsDe(a.id)))
 
 // 4. Le fil se rejoue à l'identique.
-const fil = C.fil(a.id)
+const fil = C.fil(a.id)!
 assert.equal(fil.evenements.length, 4)
 assert.deepEqual(fil.evenements.map((e) => e.k), ['user', 'source', 'texte', 'document'])
-assert.equal(fil.evenements[3].mots, 2480)
+const doc = fil.evenements[3]
+assert.equal(doc.k === 'document' && doc.mots, 2480)
 
 // 5. Renommer à la main tient.
 C.renommer(a.id, 'Londres — dossier éco')
@@ -60,7 +61,7 @@ assert.equal(C.lister('londres —')[0].titre, 'Londres — dossier éco')
 
 // 6. L'identifiant de session est mémorisé pour la reprise.
 C.memoriserSession(a.id, 'sess-42')
-assert.equal(C.fil(a.id).sessionId, 'sess-42')
+assert.equal(C.fil(a.id)!.sessionId, 'sess-42')
 
 // 7. Supprimer.
 C.supprimer(b.id)

@@ -8,8 +8,8 @@ const bac = fs.mkdtempSync(path.join(os.tmpdir(), 'redacteur-gardes-'))
 process.env.REDACTEUR_DATA_DIR = path.join(bac, 'donnees')
 process.env.REDACTEUR_BIBLIOTHEQUE = path.join(bac, 'bibliotheque')
 
-const { P } = await import('../src/doc/paths.mjs')
-const { GardeRedaction } = await import('../src/agent/gardes.mjs')
+const { P } = await import('../src/doc/paths.ts')
+const { GardeRedaction } = await import('../src/agent/gardes.ts')
 
 fs.mkdirSync(path.dirname(P.registre()), { recursive: true })
 fs.writeFileSync(P.registre(), JSON.stringify({
@@ -24,21 +24,24 @@ fs.writeFileSync(P.registre(), JSON.stringify({
 const OUTIL = 'mcp__redacteur__rediger_document'
 const neuve = () => new GardeRedaction()
 
+/** Un refus attendu : `null` (pas de refus) échoue comme un texte qui ne correspond pas. */
+const refuse = (raison: string | null, motif: RegExp) => assert.match(raison ?? '', motif)
+
 /** Une garde qui a « vu » passer les résultats de consulter_source. */
-function apresLecture(...ids) {
+function apresLecture(...ids: string[]) {
   const g = neuve()
   for (const id of ids) g.noteToolResult('mcp__redacteur__consulter_source', JSON.stringify({ source: { id } }))
   return g
 }
 
 // 1. Aucune source consultée : on refuse et on explique la marche à suivre.
-assert.match(
+refuse(
   neuve().verifier(OUTIL, { titre: 'T', markdown: 'du texte', sources: [] }),
   /Cherche \(WebSearch\)/,
 )
 
 // 2. Un identifiant qui n'existe pas au registre.
-assert.match(
+refuse(
   apresLecture('s1').verifier(OUTIL, { titre: 'T', markdown: 'texte', sources: ['s1', 's42'] }),
   /Sources inconnues : s42/,
 )
@@ -49,8 +52,8 @@ const fantome = apresLecture('s1').verifier(OUTIL, {
   markdown: 'La croissance ([source](https://institut-invente.fr/etude-2026)) atteint 3 %.',
   sources: ['s1'],
 })
-assert.match(fantome, /1 adresse\(s\) que tu n'as jamais ouverte/)
-assert.match(fantome, /institut-invente\.fr/)
+refuse(fantome, /1 adresse\(s\) que tu n'as jamais ouverte/)
+refuse(fantome, /institut-invente\.fr/)
 
 // 4. La même page, écrite autrement, reste la même page : pas de faux refus.
 assert.equal(
@@ -63,19 +66,19 @@ assert.equal(
 )
 
 // 5. Une page qui n'a rendu aucun texte n'a pas été lue.
-assert.match(
+refuse(
   apresLecture('s1', 's3').verifier(OUTIL, { titre: 'T', markdown: 'texte', sources: ['s1', 's3'] }),
   /n'a rendu aucun texte/,
 )
 
 // 6. Des sources lues mais aucune citée.
-assert.match(
+refuse(
   apresLecture('s1', 's2').verifier(OUTIL, { titre: 'T', markdown: 'texte', sources: [] }),
   /mais tu n'en cites aucune/,
 )
 
 // 7. « sans_source » ne sert pas à esquiver une lecture déjà faite.
-assert.match(
+refuse(
   apresLecture('s1').verifier(OUTIL, { titre: 'T', markdown: 'texte', sources: [], sans_source: true }),
   /Cite ces sources/,
 )
@@ -84,7 +87,7 @@ assert.match(
 assert.equal(neuve().verifier(OUTIL, { titre: 'T', markdown: 'texte', sources: [], sans_source: true }), null)
 
 // 9. Ne citer que d'anciennes lectures : on redemande de rouvrir les sources.
-assert.match(
+refuse(
   neuve().verifier(OUTIL, { titre: 'T', markdown: 'texte', sources: ['s1'] }),
   /conversations précédentes/,
 )
@@ -100,7 +103,7 @@ assert.equal(
 )
 
 // 11. Une adresse qui n'en est pas une.
-assert.match(
+refuse(
   neuve().verifier('mcp__redacteur__consulter_source', { url: '/Users/demo/note.pdf' }),
   /n'est pas une adresse http/,
 )

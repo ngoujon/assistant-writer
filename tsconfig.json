@@ -1,0 +1,13 @@
+{
+  // Processus principal, agent, bibliothèque et scripts : du Node.
+  // L'interface (src/renderer) a sa propre config, avec le DOM.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024"],
+    "types": ["node"],
+    "rootDir": ".",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts", "src/**/*.cts", "scripts/**/*.ts", "scripts/**/*.cts"],
+  "exclude": ["src/renderer"]
+}

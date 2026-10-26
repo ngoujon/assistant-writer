@@ -1,7 +1,7 @@
-// Preload factice : sert uniquement à prévisualiser l'interface (scripts/apercu.mjs).
-const { contextBridge } = require('electron')
+// Preload factice : sert uniquement à prévisualiser l'interface (scripts/apercu.ts).
+const { contextBridge } = require('electron') as typeof import('electron')
 
-let listener = () => {}
+let listener: (evt: unknown) => void = () => {}
 
 const DOCUMENTS = [
   { nom: '2026-08-29-situation-economique-de-londres.md', titre: 'Situation économique de Londres', mots: 2480, sources: 9, version: 3, mis_a_jour_le: '2026-08-29' },
@@ -34,16 +34,16 @@ contextBridge.exposeInMainWorld('redacteur', {
   setConfig: () => {},
   replyPermission: () => {},
   conv: {
-    list: async (q) => (q ? CONVERSATIONS.filter((c) => c.titre.toLowerCase().includes(q.toLowerCase())) : CONVERSATIONS),
+    list: async (q?: string) => (q ? CONVERSATIONS.filter((c) => c.titre.toLowerCase().includes(q.toLowerCase())) : CONVERSATIONS),
     create: async () => 'c9',
-    open: async (id) => id,
-    resume: async (id) => id,
+    open: async (id: string) => id,
+    resume: async (id?: string) => id,
     rename: async () => CONVERSATIONS,
     remove: async () => CONVERSATIONS,
   },
 
   docs: {
-    list: async (portee) => (portee === 'tous' ? DOCUMENTS.concat([
+    list: async (portee?: string) => (portee === 'tous' ? DOCUMENTS.concat([
       { nom: '2026-08-02-autre-sujet.md', titre: "Un document d'une autre conversation", mots: 900, sources: 4, version: 1, mis_a_jour_le: '2026-08-02' },
     ]) : DOCUMENTS),
     sources: async () => [],
@@ -57,6 +57,6 @@ contextBridge.exposeInMainWorld('redacteur', {
   choisirBibliotheque: async () => ({ bibliotheque: '/tmp', documents: DOCUMENTS }),
   openBibliotheque: () => {},
   openExternal: () => {},
-  onEvent: (cb) => { listener = cb; return () => {} },
-  _fire: (evt) => listener(evt),
+  onEvent: (cb: (evt: unknown) => void) => { listener = cb; return () => {} },
+  _fire: (evt: unknown) => listener(evt),
 })

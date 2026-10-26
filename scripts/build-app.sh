@@ -5,6 +5,9 @@ cd "$(dirname "$0")/.."
 
 [ -f assets/icon.icns ] || bash scripts/make-icon.sh
 
+# Le code est en TypeScript : l'app embarque la version compilée (dist/src).
+npm run compile
+
 rm -rf build
 npx @electron/packager . "Assistant Redacteur" \
   --platform=darwin \
@@ -16,7 +19,8 @@ npx @electron/packager . "Assistant Redacteur" \
   --app-version="$(node -p "require('./package.json').version")" \
   --extend-info=assets/Info.extra.plist \
   --prune=true \
-  --ignore="^/(scripts|build|assets/icon-1024\.png|assets/AppIcon\.iconset|assets/Info\.extra\.plist)" \
+  --ignore="^/(scripts|build|src|dist/scripts|tsconfig[^/]*\.json|assets/icon-1024\.png|assets/AppIcon\.iconset|assets/Info\.extra\.plist)" \
+  --ignore="\.map$" \
   --out=build \
   --overwrite
 

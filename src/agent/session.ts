@@ -1,15 +1,80 @@
 import { query } from '@anthropic-ai/claude-agent-sdk'
+import type {
+  CanUseTool, Options, PermissionResult, Query, SDKMessage, SDKResultMessage, SDKUserMessage,
+} from '@anthropic-ai/claude-agent-sdk'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
-import { buildSystemPrompt } from './prompt.mjs'
-import { GardeRedaction } from './gardes.mjs'
-import { resumerPermission } from './resume.mjs'
-import { serveurRedacteur } from './outils.mjs'
-import { listerDocuments } from '../doc/bibliotheque.mjs'
-import { P } from '../doc/paths.mjs'
-import { tracer } from '../doc/journal.mjs'
+import { buildSystemPrompt } from './prompt.ts'
+import { GardeRedaction } from './gardes.ts'
+import { resumerPermission } from './resume.ts'
+import type { ResumePermission } from './resume.ts'
+import { serveurRedacteur } from './outils.ts'
+import type { DemandeValidation, SignalOutil } from './outils.ts'
+import { listerDocuments } from '../doc/bibliotheque.ts'
+import { P } from '../doc/paths.ts'
+import { tracer } from '../doc/journal.ts'
+
+/** Les réglages que la session relit à chaque démarrage. */
+export interface ConfigAgent {
+  model: string
+  profondeur?: string
+  langue?: string
+  /** « auto » : l'assistant travaille seul. « prudent » : il fait valider. */
+  autonomie?: 'auto' | 'prudent' | string
+}
+
+/** Tout ce qu'une session raconte à la fenêtre, discriminé par `k`. */
+export type EvenementAgent =
+  | { k: 'status', state: 'idle' | 'thinking' }
+  | { k: 'note', text: string }
+  | { k: 'error', message: string }
+  | { k: 'ready', sessionId: string, model: string, outils: string }
+  | { k: 'resumed' | 'reprise-possible' | 'queued' | 'turn-start' | 'interrupted' | 'text-start' | 'thinking-start' }
+  | { k: 'text-delta' | 'thinking-delta', text: string }
+  | { k: 'tool-use', id: string, name: string, input: unknown }
+  | { k: 'tool-result', id: string, name: string, ok: boolean, preview: string }
+  | {
+    k: 'result', isError: boolean, text: string, reprenable: boolean,
+    costUsd: number, durationMs: number,
+  }
+  | { k: 'titre', titre: string }
+  | SignalOutil
+
+/** Ce que la fenêtre reçoit pour composer une carte de validation. */
+export interface DemandePermission {
+  toolName: string
+  input: unknown
+  summary: ResumePermission | null
+  title?: string
+  displayName?: string
+  subtitle?: string
+  reason?: string
+  hint?: string
+  allowAlways: boolean
+  signal?: AbortSignal
+}
+
+export interface ReponsePermission {
+  behavior: 'allow' | 'deny'
+  always?: boolean
+  message?: string
+}
+
+export interface OptionsSession {
+  emit: (evt: EvenementAgent) => void
+  askPermission: (req: DemandePermission) => Promise<ReponsePermission | null | undefined>
+  getConfig: () => ConfigAgent
+  ouvrirFichier?: (chemin: string) => unknown
+  envoyerCorbeille?: (chemin: string) => Promise<boolean>
+}
+
+/** La file d'entrée du SDK : on y pousse les messages, il les tire à son rythme. */
+interface FileEntree extends AsyncIterable<SDKUserMessage> {
+  push(msg: SDKUserMessage): void
+  close(): void
+}
 
 const HOME = os.homedir()
 const require = createRequire(import.meta.url)
@@ -22,7 +87,7 @@ const PATH_SUP = [
 
 // Le SDK embarque son binaire Claude Code et le résout par chemin de module.
 // Ce repli ne sert que si le paquet natif manque (installation partielle).
-function claudeExecutable() {
+function claudeExecutable(): string | undefined {
   try {
     require.resolve('@anthropic-ai/claude-agent-sdk-darwin-arm64/package.json')
     return undefined
@@ -37,7 +102,7 @@ const PREFIXE = 'mcp__redacteur__'
 
 /**
  * Les outils de rédaction portent eux-mêmes leur politique de validation (voir
- * outils.mjs) : ils savent quel document est en jeu et n'interrompent Nicolas que
+ * outils.ts) : ils savent quel document est en jeu et n'interrompent Nicolas que
  * pour une réécriture ou une suppression. On ne les double pas d'une confirmation
  * générique — enregistrer un document, c'est exactement ce qu'on leur demande.
  */
@@ -47,9 +112,9 @@ const BUILTIN_SUR = new Set([
   'Skill', 'AskUserQuestion', 'TaskOutput',
 ])
 
-function fileEntree() {
-  const attente = []
-  let dormeur = null
+function fileEntree(): FileEntree {
+  const attente: SDKUserMessage[] = []
+  let dormeur: ((r: IteratorResult<SDKUserMessage, undefined>) => void) | null = null
   let ferme = false
   return {
     push(msg) {
@@ -58,13 +123,14 @@ function fileEntree() {
     },
     close() {
       ferme = true
-      if (dormeur) { const d = dormeur; dormeur = null; d({ done: true }) }
+      if (dormeur) { const d = dormeur; dormeur = null; d({ value: undefined, done: true }) }
     },
     async *[Symbol.asyncIterator]() {
       while (true) {
-        if (attente.length) { yield attente.shift(); continue }
+        const suivant = attente.shift()
+        if (suivant) { yield suivant; continue }
         if (ferme) return
-        const r = await new Promise((res) => { dormeur = res })
+        const r = await new Promise<IteratorResult<SDKUserMessage, undefined>>((res) => { dormeur = res })
         if (r.done) return
         yield r.value
       }
@@ -73,7 +139,25 @@ function fileEntree() {
 }
 
 export class AgentSession {
-  constructor({ emit, askPermission, getConfig, ouvrirFichier, envoyerCorbeille }) {
+  emit: (evt: EvenementAgent) => void
+  askPermission: OptionsSession['askPermission']
+  getConfig: () => ConfigAgent
+  ouvrirFichier: (chemin: string) => unknown
+  envoyerCorbeille: (chemin: string) => Promise<boolean>
+  q: Query | null
+  queue: FileEntree | null
+  abort: AbortController | null
+  sessionId: string | null
+  resumeId: string | null = null
+  busy: boolean
+  streamed: Set<string>
+  toolNames: Map<string, string>
+  garde: GardeRedaction
+  minuteurConnexion: ReturnType<typeof setTimeout> | undefined
+  /** Nombre de rebranchements automatiques déjà tentés. */
+  repriseAuto: number
+
+  constructor({ emit, askPermission, getConfig, ouvrirFichier, envoyerCorbeille }: OptionsSession) {
     this.emit = emit
     this.askPermission = askPermission
     this.getConfig = getConfig
@@ -87,14 +171,13 @@ export class AgentSession {
     this.streamed = new Set()
     this.toolNames = new Map()
     this.garde = new GardeRedaction()
-    this.minuteurConnexion = null
-    /** Nombre de rebranchements automatiques déjà tentés. */
+    this.minuteurConnexion = undefined
     this.repriseAuto = 0
   }
 
-  get running() { return this.q !== null }
+  get running(): boolean { return this.q !== null }
 
-  buildOptions(resume) {
+  buildOptions(resume?: string | null): Options {
     const cfg = this.getConfig()
     const bin = claudeExecutable()
     return {
@@ -136,7 +219,7 @@ export class AgentSession {
       permissionMode: 'default',
       hooks: this.garde.hooks(),
       includePartialMessages: true,
-      abortController: this.abort,
+      abortController: this.abort ?? undefined,
       resume: resume || undefined,
       title: 'Assistant Rédacteur',
       env: {
@@ -147,7 +230,7 @@ export class AgentSession {
       ...(bin ? { pathToClaudeCodeExecutable: bin } : {}),
       // La sortie d'erreur de Claude Code va au journal : c'est là qu'on lit
       // pourquoi une session ne démarre pas quand l'app est lancée depuis le Dock.
-      stderr: (d) => {
+      stderr: (d: string) => {
         tracer('[claude]', String(d).trimEnd().slice(0, 500))
         if (process.env.REDACTEUR_DEBUG) process.stderr.write(`[claude] ${d}`)
       },
@@ -155,7 +238,7 @@ export class AgentSession {
     }
   }
 
-  start({ resume } = {}) {
+  start({ resume }: { resume?: string | null } = {}): void {
     this.stop()
     this.abort = new AbortController()
     this.queue = fileEntree()
@@ -175,8 +258,9 @@ export class AgentSession {
     this.pump()
   }
 
-  async pump() {
+  async pump(): Promise<void> {
     const courant = this.q
+    if (!courant) return
     try {
       for await (const msg of courant) {
         if (this.q !== courant) break
@@ -186,7 +270,8 @@ export class AgentSession {
       if (this.q !== courant) return
       if (this.abort?.signal.aborted) return
       this.busy = false
-      tracer('session erreur', String(err?.stack || err?.message || err).slice(0, 700))
+      const e = err as Error | undefined
+      tracer('session erreur', String(e?.stack || e?.message || err).slice(0, 700))
 
       if (this.resumeId) {
         this.resumeId = null
@@ -208,7 +293,7 @@ export class AgentSession {
         return
       }
 
-      this.emit({ k: 'error', message: String(err?.message || err) })
+      this.emit({ k: 'error', message: String(e?.message || err) })
       this.emit({ k: 'status', state: 'idle' })
     }
   }
@@ -219,7 +304,7 @@ export class AgentSession {
    * tant qu'on ne répond pas, rien n'arrive. La boîte de dialogue passe souvent
    * derrière la fenêtre : mieux vaut le dire que laisser tourner « Connexion… ».
    */
-  armerAttente() {
+  armerAttente(): void {
     if (this.sessionId) return
     clearTimeout(this.minuteurConnexion)
     this.minuteurConnexion = setTimeout(() => {
@@ -234,7 +319,7 @@ export class AgentSession {
     }, 30000)
   }
 
-  stop() {
+  stop(): void {
     clearTimeout(this.minuteurConnexion)
     try { this.queue?.close() } catch {}
     try { this.abort?.abort() } catch {}
@@ -248,7 +333,7 @@ export class AgentSession {
    * d'entrée : le SDK le remet au modèle à la prochaine respiration, qui refait
    * son plan avec. On ne bloque donc jamais la saisie.
    */
-  send(text) {
+  send(text: string): void {
     this.repriseAuto = 0
     if (!this.q) this.start({})
     // C'est maintenant que la session s'ouvre vraiment, et donc maintenant que
@@ -261,8 +346,8 @@ export class AgentSession {
     this.pousser(text)
   }
 
-  pousser(text) {
-    this.queue.push({
+  pousser(text: string): void {
+    this.queue?.push({
       type: 'user',
       message: { role: 'user', content: [{ type: 'text', text }] },
       parent_tool_use_id: null,
@@ -270,7 +355,7 @@ export class AgentSession {
     })
   }
 
-  async interrupt() {
+  async interrupt(): Promise<void> {
     if (!this.q || !this.busy) return
     try { await this.q.interrupt() } catch {}
     this.busy = false
@@ -278,13 +363,13 @@ export class AgentSession {
     this.emit({ k: 'status', state: 'idle' })
   }
 
-  async setModel(model) {
+  async setModel(model: string): Promise<void> {
     if (this.q) { try { await this.q.setModel(model) } catch {} }
   }
 
   // ---------------------------------------------------------------- routage
 
-  route(msg) {
+  route(msg: SDKMessage): void {
     switch (msg.type) {
       case 'system':
         if (msg.subtype === 'init') {
@@ -362,9 +447,8 @@ export class AgentSession {
   /**
    * Validation demandée par un outil de rédaction, une fois qu'il sait exactement
    * quel document est en jeu.
-   * @returns {Promise<boolean>}
    */
-  async confirmerAction(demande) {
+  async confirmerAction(demande: DemandeValidation): Promise<boolean> {
     if (this.autonome()) {
       tracer('autonomie — action menée sans demander :', demande.outil, demande.titre)
       return true
@@ -390,11 +474,15 @@ export class AgentSession {
    * cite que ce qu'on a lu — sont des règles, pas des permissions : ils
    * s'appliquent dans les deux modes.
    */
-  autonome() {
+  autonome(): boolean {
     return (this.getConfig()?.autonomie || 'auto') === 'auto'
   }
 
-  async handlePermission(toolName, input, opts) {
+  async handlePermission(
+    toolName: string,
+    input: Record<string, unknown>,
+    opts?: Parameters<CanUseTool>[2],
+  ): Promise<PermissionResult> {
     // Outils de rédaction : la décision appartient à l'outil, qui la prend en
     // connaissance de cause. Redemander ici ferait valider deux fois la même action.
     if (toolName.startsWith(PREFIXE)) return { behavior: 'allow', updatedInput: input }
@@ -412,14 +500,15 @@ export class AgentSession {
       summary,
       title: summary?.title || opts?.title,
       displayName: opts?.displayName,
-      subtitle: opts?.subtitle,
+      // Le SDK nomme `description` ce que la carte affiche en sous-titre.
+      subtitle: opts?.description,
       reason: opts?.decisionReason,
       allowAlways: true,
       signal: opts?.signal,
     })
 
     if (reponse?.behavior === 'allow') {
-      const res = { behavior: 'allow', updatedInput: input }
+      const res: PermissionResult = { behavior: 'allow', updatedInput: input }
       if (reponse.always && opts?.suggestions?.length) res.updatedPermissions = opts.suggestions
       return res
     }
@@ -432,37 +521,41 @@ export class AgentSession {
  * Les libellés bruts du SDK sont anglais et techniques : ils n'ont rien à faire
  * dans la fenêtre.
  */
-const ARRETS = {
+const ARRETS: Record<string, string> = {
   error_max_turns: "J'ai atteint la limite d'étapes pour ce message — le travail n'est pas terminé.",
   error_max_tokens: 'La réponse est devenue trop longue pour tenir en une fois.',
   error_during_execution: "Le tour s'est interrompu avant la fin.",
 }
 
-function raisonArret(msg) {
+function raisonArret(msg: SDKResultMessage): string {
   const connu = ARRETS[msg.subtype]
   if (connu) return `${connu} Clique « Continuer » ou écris « continue » : je reprends où j'en étais.`
-  const brut = String(msg.result || msg.subtype || '').trim()
+  const brut = String(('result' in msg && msg.result) || msg.subtype || '').trim()
   return brut
     ? `Le tour s'est arrêté avant la fin : ${brut}`
     : "Le tour s'est arrêté avant la fin, sans raison précisée."
 }
 
 /** Un aperçu d'entrée d'outil pour le journal : une ligne, pas un déversement. */
-function argLisible(input) {
+function argLisible(input: unknown): string {
   if (!input || typeof input !== 'object') return ''
+  const i = input as Record<string, unknown>
   for (const cle of ['command', 'file_path', 'nom', 'url', 'titre']) {
-    if (typeof input[cle] === 'string' && input[cle]) return input[cle].slice(0, 160)
+    const v = i[cle]
+    if (typeof v === 'string' && v) return v.slice(0, 160)
   }
   return ''
 }
 
-function textOf(contenu) {
+function textOf(contenu: unknown): string {
   if (typeof contenu === 'string') return contenu
-  if (Array.isArray(contenu)) return contenu.filter((b) => b?.type === 'text').map((b) => b.text).join('\n')
+  if (Array.isArray(contenu)) {
+    return contenu.filter((b) => b?.type === 'text').map((b: { text: string }) => b.text).join('\n')
+  }
   return ''
 }
 
-function tronquer(s, n = 700) {
+function tronquer(s: unknown, n = 700): string {
   if (!s) return ''
   const t = String(s).trim()
   return t.length > n ? `${t.slice(0, n)}…` : t

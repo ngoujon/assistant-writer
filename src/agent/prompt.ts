@@ -1,15 +1,27 @@
 // Incrémente ce numéro quand les règles changent : une conversation enregistrée
 // sous d'anciennes règles n'est alors plus reprise au démarrage.
+import type { InfoDocument } from '../doc/bibliotheque.ts'
+
 export const PROMPT_VERSION = 6
 
-const PROFONDEURS = {
+export type Profondeur = 'bref' | 'standard' | 'approfondi'
+
+const PROFONDEURS: Record<Profondeur, { mots: string, sources: string, note: string }> = {
   bref: { mots: '900 à 1 400 mots', sources: '3 à 5 sources', note: 'Une note de synthèse : l\'essentiel, chiffré, sans développement.' },
   standard: { mots: '2 000 à 3 000 mots', sources: '6 à 10 sources', note: 'Un vrai document de travail : chaque volet du sujet a sa section.' },
   approfondi: { mots: '4 500 à 7 000 mots', sources: '12 sources ou plus', note: 'Un dossier : historique, chiffres détaillés, acteurs, perspectives, angles morts.' },
 }
 
-export function buildSystemPrompt({ bibliotheque, timezone, profondeur = 'standard', langue = 'français', documents = [] }) {
-  const p = PROFONDEURS[profondeur] || PROFONDEURS.standard
+export interface ContextePrompt {
+  bibliotheque: string
+  timezone: string
+  profondeur?: string
+  langue?: string
+  documents?: Pick<InfoDocument, 'nom' | 'titre' | 'mots' | 'sources'>[]
+}
+
+export function buildSystemPrompt({ bibliotheque, timezone, profondeur = 'standard', langue = 'français', documents = [] }: ContextePrompt): string {
+  const p = PROFONDEURS[profondeur as Profondeur] || PROFONDEURS.standard
   const maintenant = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
   const recents = documents.length
     ? documents.slice(0, 8).map((d) => `- \`${d.nom}\` — ${d.titre} (${d.mots} mots, ${d.sources} source(s))`).join('\n')

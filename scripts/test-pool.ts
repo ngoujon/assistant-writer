@@ -9,23 +9,23 @@ const bac = fs.mkdtempSync(path.join(os.tmpdir(), 'redacteur-pool-'))
 process.env.REDACTEUR_DATA_DIR = path.join(bac, 'donnees')
 process.env.REDACTEUR_BIBLIOTHEQUE = path.join(bac, 'bibliotheque')
 
-const { Pool } = await import('../src/agent/pool.mjs')
+const { Pool } = await import('../src/agent/pool.ts')
 
 /** Une fausse session : on regarde ce qu'on lui envoie et si on l'arrête. */
-function fausseSession(convId, journal) {
+function fausseSession(convId: string, journal: string[]) {
   return {
     running: false,
-    start(o) { this.running = true; journal.push(`start:${convId}:${o?.resume || 'neuf'}`) },
-    send(t) { journal.push(`send:${convId}:${t}`) },
+    start(o?: { resume?: string }) { this.running = true; journal.push(`start:${convId}:${o?.resume || 'neuf'}`) },
+    send(t: string) { journal.push(`send:${convId}:${t}`) },
     stop() { this.running = false; journal.push(`stop:${convId}`) },
     interrupt() { journal.push(`interrupt:${convId}`) },
     setModel() {},
   }
 }
 
-function pool({ reprises = {} } = {}) {
-  const journal = []
-  const sessions = new Map()
+function pool({ reprises = {} }: { reprises?: Record<string, string> } = {}) {
+  const journal: string[] = []
+  const sessions = new Map<string, ReturnType<typeof fausseSession>>()
   const p = new Pool({
     creerSession: (id) => {
       const s = fausseSession(id, journal)

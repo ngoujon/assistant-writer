@@ -10,7 +10,7 @@ The UI and the generated documents are in French by default (English is availabl
 
 ## Screenshots
 
-*The screenshots replay a scripted demo conversation (`scripts/apercu.mjs`) — no real session or personal data.*
+*The screenshots replay a scripted demo conversation (`scripts/apercu.ts`) — no real session or personal data.*
 
 ![Light theme](docs/screenshots/light.png)
 
@@ -43,7 +43,7 @@ One click opens it, the close button hides it (it stays in the Dock), `⌘Q` qui
 
 One document per conversation. `+` opens a new one and reveals the **sidebar**: the list of threads, with a **search** across titles, your requests, the answers, the produced documents and the pages read. Each thread keeps its title (written by the assistant once it understands the request — or set by you with a double-click, which then sticks), its model context and its display: coming back weeks later shows the screen exactly as it was.
 
-Each conversation has **its own session**. Two run at the same time; further requests wait their turn and start automatically (`MAX_EN_PARALLELE` in `src/agent/pool.mjs`). **Navigating never interrupts anything** — switching threads only changes what you look at.
+Each conversation has **its own session**. Two run at the same time; further requests wait their turn and start automatically (`MAX_EN_PARALLELE` in `src/agent/pool.ts`). **Navigating never interrupts anything** — switching threads only changes what you look at.
 
 | State in the list | Meaning |
 |---|---|
@@ -64,12 +64,12 @@ The assistant also **publishes a first version early** and enriches it version a
 A language model can produce a credible bibliography without reading anything. The app makes that impossible by construction:
 
 1. **`WebFetch` is disabled.** The only way to open a page is the `consulter_source` tool, which downloads it, flattens it and **records it in a registry** (id, title, publisher, publication date, access date).
-2. **A deterministic guard** (`src/agent/gardes.mjs`) inspects every document before saving. Any `http(s)` address in the text that is not in the registry makes the call **fail**, listing the culprits.
+2. **A deterministic guard** (`src/agent/gardes.ts`) inspects every document before saving. Any `http(s)` address in the text that is not in the registry makes the call **fail**, listing the culprits.
 3. **The bibliography is not written by the model.** It passes ids (`s1`, `s4`…) and the app composes the "Sources" section from the registry.
 4. A page that returned **nothing** (paywall, JavaScript-only site) doesn't count as read.
 5. Citing only readings from previous conversations is refused too.
 
-Cross-checking contradictory figures, preferring primary sources and flagging stale data are handled by the instructions (`src/agent/prompt.mjs`).
+Cross-checking contradictory figures, preferring primary sources and flagging stale data are handled by the instructions (`src/agent/prompt.ts`).
 
 ## Three columns
 
@@ -107,26 +107,29 @@ One `.md` file per topic in `~/Assistant Rédacteur` (configurable). Nothing pro
 
 ## Development
 
+The code is TypeScript (strict). `tsc` compiles it to `dist/`, which is what Electron and the packaged app run; tests run the `.ts` files directly with Node's type stripping (Node ≥ 23.6).
+
 ```bash
-npm start          # run the app from source
-npm test           # extraction, guards, library, tools, conversations, sessions, autonomy
+npm start          # compile, then run the app from source
+npm run typecheck  # type-check the main process, scripts and renderer
+npm test           # type-check, then extraction, guards, library, tools, conversations, sessions, autonomy
 npm run selftest   # real agent session: reads a page and writes a document
 npm run charge     # heavy request run to completion with automatic resume
-npx electron scripts/apercu.mjs   # replay a demo conversation and capture the UI
+npm run apercu     # replay a demo conversation and capture the UI
 ```
 
 | File | Role |
 |---|---|
-| `src/main.mjs` | window, settings, IPC, confirmation cards |
-| `src/agent/session.mjs` | the Claude Agent SDK loop |
-| `src/agent/prompt.mjs` | instructions: method, document shape, tone |
-| `src/agent/outils.mjs` | MCP tools (read source, write document, library) |
-| `src/agent/gardes.mjs` | deterministic refusals: only cite what was read |
-| `src/agent/pool.mjs` | two concurrent sessions, a queue, no interruptions |
-| `src/doc/conversations.mjs` | threads: title, search, replayable display |
-| `src/doc/journal.mjs` | the log, the only trace when launched from the Dock |
-| `src/doc/web.mjs` | page download and flattening |
-| `src/doc/sources.mjs` | registry of consulted sources |
-| `src/doc/bibliotheque.mjs` | `.md` files: header, body, bibliography |
+| `src/main.ts` | window, settings, IPC, confirmation cards |
+| `src/agent/session.ts` | the Claude Agent SDK loop |
+| `src/agent/prompt.ts` | instructions: method, document shape, tone |
+| `src/agent/outils.ts` | MCP tools (read source, write document, library) |
+| `src/agent/gardes.ts` | deterministic refusals: only cite what was read |
+| `src/agent/pool.ts` | two concurrent sessions, a queue, no interruptions |
+| `src/doc/conversations.ts` | threads: title, search, replayable display |
+| `src/doc/journal.ts` | the log, the only trace when launched from the Dock |
+| `src/doc/web.ts` | page download and flattening |
+| `src/doc/sources.ts` | registry of consulted sources |
+| `src/doc/bibliotheque.ts` | `.md` files: header, body, bibliography |
 
 App data (source registry, source texts, settings) lives in `~/Library/Application Support/Assistant Rédacteur`; documents stay in your library folder.

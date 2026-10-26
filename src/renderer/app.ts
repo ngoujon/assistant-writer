@@ -1,45 +1,69 @@
-import { renderMarkdown } from './markdown.js'
+import { renderMarkdown } from './markdown.ts'
+import type {
+  ConversationResume, DocumentProduit, DocumentResume, EvenementAgent, EvenementEnregistre,
+  Portee, ReponsePermission, SourceLue, StatutFil,
+} from './types.ts'
+
+type Evt<K extends EvenementAgent['k']> = Extract<EvenementAgent, { k: K }>
+
+/** Un élément de la page, qui doit exister : son absence est un bogue du HTML. */
+function $<T extends HTMLElement = HTMLElement>(id: string): T {
+  const n = document.getElementById(id)
+  if (!n) throw new Error(`Élément #${id} introuvable`)
+  return n as T
+}
 
 const api = window.redacteur
-const thread = document.getElementById('thread')
-const scroll = document.getElementById('scroll')
-const input = document.getElementById('input')
-const sendBtn = document.getElementById('btn-send')
-const statusLine = document.getElementById('status-line')
-const panneauReglages = document.getElementById('settings')
-const modelSelect = document.getElementById('model')
-const profondeurSelect = document.getElementById('profondeur')
-const langueSelect = document.getElementById('langue')
-const autonomieSelect = document.getElementById('autonomie')
-const listeDocs = document.getElementById('liste-docs')
-const cheminBiblio = document.getElementById('chemin-biblio')
-const barre = document.getElementById('barre')
-const recherche = document.getElementById('recherche')
-const listeConv = document.getElementById('liste-conv')
-const docsBarre = document.getElementById('docs-barre')
+const thread = $('thread')
+const scroll = $('scroll')
+const input = $<HTMLTextAreaElement>('input')
+const sendBtn = $<HTMLButtonElement>('btn-send')
+const statusLine = $('status-line')
+const panneauReglages = $('settings')
+const modelSelect = $<HTMLSelectElement>('model')
+const profondeurSelect = $<HTMLSelectElement>('profondeur')
+const langueSelect = $<HTMLSelectElement>('langue')
+const autonomieSelect = $<HTMLSelectElement>('autonomie')
+const listeDocs = $('liste-docs')
+const cheminBiblio = $('chemin-biblio')
+const barre = $('barre')
+const recherche = $<HTMLInputElement>('recherche')
+const listeConv = $('liste-conv')
+const docsBarre = $('docs-barre')
+
+interface BlocTexte { el: HTMLElement; raw: string }
+
+interface PermEnAttente {
+  id: string
+  card: HTMLElement
+  allow: () => void
+  deny: () => void
+}
 
 let busy = false
-let currentText = null
-let currentThinking = null
-let currentSources = null
-let toolEls = new Map()
-let documents = []
-let conversations = []
-let convCourante = null
+let currentText: BlocTexte | null = null
+let currentThinking: BlocTexte | null = null
+let currentSources: HTMLElement | null = null
+let toolEls = new Map<string, HTMLElement>()
+let documents: DocumentResume[] = []
+let conversations: ConversationResume[] = []
+let convCourante: string | null = null
 let bibliotheque = ''
-let porteeDocs = 'conversation'
+let porteeDocs: Portee = 'conversation'
 /** Le total de la bibliothèque : la colonne, elle, ne montre qu'un fil à la fois. */
 let totalDocs = 0
-const permsEnAttente = []
+const permsEnAttente: PermEnAttente[] = []
 /** Messages écrits pendant qu'il travaillait, pas encore repris par l'agent. */
-let enFile = []
+let enFile: HTMLElement[] = []
 
 // ------------------------------------------------------------------ outils
 
-const el = (tag, cls, text) => {
+const el = <K extends keyof HTMLElementTagNameMap>(
+  tag: K, cls?: string | null, text?: string | number | null,
+): HTMLElementTagNameMap[K] => {
   const n = document.createElement(tag)
   if (cls) n.className = cls
-  if (text != null) n.textContent = text
+  if (text != null) n.textContent = String(text)
   return n
 }
 
@@ -47,12 +71,12 @@ const nearBottom = () => scroll.scrollHeight - scroll.scrollTop - scroll.clientH
 let stick = true
 scroll.addEventListener('scroll', () => { stick = nearBottom() })
 
-function scrollDown(force) {
+function scrollDown(force?: boolean) {
   if (force) stick = true
   if (stick) scroll.scrollTop = scroll.scrollHeight
 }
 
-function add(node) {
+function add<T extends HTMLElement>(node: T): T {
   thread.appendChild(node)
   scrollDown()
   return node
@@ -99,7 +123,9 @@ function dropWelcome() {
 
 // ---------------------------------------------------------- noms des outils
 
-const OUTILS = {
+type Libelle = [glyph: string, label: string]
+
+const OUTILS: Record<string, Libelle> = {
   consulter_source: ['🔍', 'Lire une source'],
   sources_consultees: ['🗂', 'Registre des sources'],
   relire_source: ['📑', 'Relire une source'],
@@ -110,7 +136,7 @@ const OUTILS = {
   supprimer_document: ['🗑', 'Supprimer un document'],
 }
 
-const BUILTIN = {
+const BUILTIN: Record<string, Libelle> = {
   Bash: ['⌘', 'Terminal'],
   Read: ['📄', 'Lire un fichier'],
   Write: ['✏️', 'Écrire un fichier'],
@@ -122,7 +148,7 @@ const BUILTIN = {
   Task: ['🤖', 'Sous-agent'],
 }
 
-function describeTool(name) {
+function describeTool(name: string): Libelle {
   if (name.startsWith('mcp__redacteur__')) {
     const court = name.slice('mcp__redacteur__'.length)
     return OUTILS[court] || ['📝', court.replace(/_/g, ' ')]
@@ -132,13 +158,19 @@ function describeTool(name) {
   return ['•', name]
 }
 
-function summarizeInput(name, input) {
-  if (!input || typeof input !== 'object') return ''
+/** Une entrée d'outil, vue comme un dictionnaire de champs. */
+type Entree = Record<string, unknown>
+
+const estObjet = (v: unknown): v is Entree => !!v && typeof v === 'object'
+
+function summarizeInput(name: string, input: unknown): string {
+  if (!estObjet(input)) return ''
   if (name === 'Bash') return String(input.command || '')
   if (name.endsWith('rediger_document')) return String(input.titre || '')
-  if (input.file_path) return String(input.file_path).split('/').pop()
+  if (input.file_path) return String(input.file_path).split('/').pop() || ''
   for (const k of ['url', 'query', 'nom', 'id', 'titre', 'prompt', 'description', 'pattern']) {
-    if (typeof input[k] === 'string' && input[k]) return input[k]
+    const v = input[k]
+    if (typeof v === 'string' && v) return v
   }
   const first = Object.values(input).find((v) => typeof v === 'string' && v)
   return first ? String(first) : ''
@@ -146,14 +178,14 @@ function summarizeInput(name, input) {
 
 const MONO_TOOLS = new Set(['Bash', 'Write', 'Edit'])
 
-const ETIQUETTES = {
+const ETIQUETTES: Record<string, string> = {
   url: 'adresse', titre: 'titre', sujet: 'sujet', nom: 'fichier', sources: 'sources',
   markdown: 'document', remplacer: 'réécrire', sans_source: 'sans source',
   command: 'commande', file_path: 'fichier', query: 'recherche', id: 'source',
   contient: 'contient', relire: 'relire',
 }
 
-function humanizeInput(value, depth = 0, lines = []) {
+function humanizeInput(value: unknown, depth = 0, lines: string[] = []): string[] {
   if (lines.length > 18) return lines
   if (Array.isArray(value)) {
     value.slice(0, 8).forEach((item) => lines.push(`${'  '.repeat(depth)}• ${item}`))
@@ -180,7 +212,7 @@ function humanizeInput(value, depth = 0, lines = []) {
 
 // -------------------------------------------------------------------- rendu
 
-function pushUserMessage(text, enAttente) {
+function pushUserMessage(text: string, enAttente: boolean) {
   dropWelcome()
   const node = el('div', `msg user${enAttente ? ' enfile' : ''}`, text)
   if (enAttente) {
@@ -213,8 +245,9 @@ function startTextBlock() {
 }
 
 let renderQueued = false
-function appendText(chunk) {
+function appendText(chunk: string) {
   if (!currentText) startTextBlock()
+  if (!currentText) return
   currentText.raw += chunk
   if (renderQueued) return
   renderQueued = true
@@ -242,8 +275,9 @@ function startThinking() {
   add(node)
 }
 
-function appendThinking(chunk) {
+function appendThinking(chunk: string) {
   if (!currentThinking) startThinking()
+  if (!currentThinking) return
   currentThinking.raw += chunk
   currentThinking.el.textContent = currentThinking.raw
   currentThinking.el.scrollTop = currentThinking.el.scrollHeight
@@ -255,7 +289,7 @@ function finishThinking() {
   currentThinking = null
 }
 
-function addTool(evt) {
+function addTool(evt: Evt<'tool-use'>) {
   videEnFile()
   finishText()
   finishThinking()
@@ -270,7 +304,7 @@ function addTool(evt) {
 }
 
 /** La ligne d'un appel d'outil. Sert aussi à rejouer un fil enregistré. */
-function noeudOutil(nom, arg, detail) {
+function noeudOutil(nom: string, arg: string, detail: string): HTMLElement {
   const [glyph, label] = describeTool(nom)
   const node = el('div', 'msg tool')
   const head = el('div', 'head')
@@ -286,13 +320,13 @@ function noeudOutil(nom, arg, detail) {
   return node
 }
 
-function endTool(evt) {
+function endTool(evt: Evt<'tool-result'>) {
   const node = toolEls.get(evt.id)
   if (!node) return
   node.classList.remove('running')
   node.classList.add(evt.ok ? 'ok' : 'err')
   const body = node.querySelector('.body')
-  if (evt.preview) body.textContent = `${body.textContent}\n\n— — —\n${evt.preview}`
+  if (evt.preview && body) body.textContent = `${body.textContent}\n\n— — —\n${evt.preview}`
   if (!evt.ok) node.classList.add('open')
 }
 
@@ -301,7 +335,7 @@ function endTool(evt) {
  * reprise : l'application rebranche la session sur son contexte et redemande la
  * suite. C'est la seule chose à faire, autant la mettre à un clic.
  */
-function proposerReprise(texte) {
+function proposerReprise(texte?: string) {
   thread.querySelector('.reprise')?.remove()
   const box = el('div', 'reprise')
   const bouton = el('button', 'chip', texte || '↻ Reprendre où tu t\'es arrêté')
@@ -315,14 +349,14 @@ function proposerReprise(texte) {
   scrollDown(true)
 }
 
-function addNote(text, kind) {
+function addNote(text: string, kind?: string) {
   finishText()
   add(el('div', `note${kind ? ` ${kind}` : ''}`, text))
 }
 
 // ------------------------------------------------------- sources consultées
 
-function puceSource(s, dejaLue) {
+function puceSource(s: SourceLue, dejaLue?: boolean): HTMLElement {
   const puce = el('div', 'puce-source')
   puce.appendChild(el('span', 'n', s.id))
   puce.appendChild(el('span', 't', s.titre || s.url))
@@ -333,7 +367,7 @@ function puceSource(s, dejaLue) {
   return puce
 }
 
-function addSource(evt) {
+function addSource(evt: Evt<'source'>) {
   finishText()
   finishThinking()
   videEnFile()
@@ -344,7 +378,7 @@ function addSource(evt) {
 
 // -------------------------------------------------------- document produit
 
-function carteDocument(d) {
+function carteDocument(d: DocumentProduit): HTMLElement {
   const version = Number(d.version || 1)
   const carte = el('div', 'doc-carte')
   const entete = el('div', 'entete')
@@ -368,7 +402,7 @@ function carteDocument(d) {
   return carte
 }
 
-function addDocument(evt) {
+function addDocument(evt: Evt<'document'>) {
   finishText()
   finishThinking()
   currentSources = null
@@ -384,12 +418,14 @@ function addDocument(evt) {
 
 const LARGEUR_MIN = 170
 
-function appliquerLargeur(colonne, px) {
+function appliquerLargeur(colonne: HTMLElement, px: number | null) {
   if (px) colonne.style.flex = `0 0 ${px}px`
   else colonne.style.flex = ''
 }
 
-function poser(poignee, colonne, cote, cle) {
+function poser(
+  poignee: HTMLElement, colonne: HTMLElement, cote: 'gauche' | 'droite', cle: 'largeurBarre' | 'largeurDocs',
+) {
   poignee.addEventListener('pointerdown', (e) => {
     e.preventDefault()
     poignee.setPointerCapture(e.pointerId)
@@ -399,7 +435,7 @@ function poser(poignee, colonne, cote, cle) {
     const initiale = colonne.offsetWidth
     let derniere = initiale
 
-    const bouge = (ev) => {
+    const bouge = (ev: PointerEvent) => {
       const delta = cote === 'gauche' ? ev.clientX - depart : depart - ev.clientX
       // On garde toujours de quoi lire le fil : au moins un quart de la fenêtre.
       const max = Math.max(LARGEUR_MIN, Math.round(window.innerWidth * 0.45))
@@ -424,29 +460,29 @@ function poser(poignee, colonne, cote, cle) {
   })
 }
 
-poser(document.getElementById('poignee-barre'), barre, 'gauche', 'largeurBarre')
-poser(document.getElementById('poignee-docs'), docsBarre, 'droite', 'largeurDocs')
+poser($('poignee-barre'), barre, 'gauche', 'largeurBarre')
+poser($('poignee-docs'), docsBarre, 'droite', 'largeurDocs')
 
 // ---------------------------------------------------- colonne des documents
 
-async function changerPortee(portee) {
+async function changerPortee(portee: Portee) {
   porteeDocs = portee
-  document.getElementById('portee-conv').classList.toggle('actif', portee === 'conversation')
-  document.getElementById('portee-tous').classList.toggle('actif', portee === 'tous')
+  $('portee-conv').classList.toggle('actif', portee === 'conversation')
+  $('portee-tous').classList.toggle('actif', portee === 'tous')
   api.setConfig({ porteeDocs: portee })
   documents = await api.docs.list(portee)
   renderDocuments()
 }
 
-document.getElementById('portee-conv').addEventListener('click', () => changerPortee('conversation'))
-document.getElementById('portee-tous').addEventListener('click', () => changerPortee('tous'))
+$('portee-conv').addEventListener('click', () => changerPortee('conversation'))
+$('portee-tous').addEventListener('click', () => changerPortee('tous'))
 
-function docsVisible(v) {
+function docsVisible(v: boolean) {
   document.body.classList.toggle('docs-cachee', !v)
   api.setConfig({ docsVisible: v })
 }
 
-function surlignerDocument(nom) {
+function surlignerDocument(nom: string) {
   const fiche = listeDocs.querySelector(`[data-nom="${CSS.escape(nom)}"]`)
   if (!fiche) return
   fiche.scrollIntoView({ block: 'nearest' })
@@ -454,7 +490,7 @@ function surlignerDocument(nom) {
 }
 
 /** Les versions d'un document, la plus récente en tête. */
-async function remplirVersions(hote, nom) {
+async function remplirVersions(hote: HTMLElement, nom: string) {
   hote.replaceChildren(el('div', 'vide', 'Chargement…'))
   const versions = await api.docs.versions(nom)
   hote.replaceChildren()
@@ -474,7 +510,7 @@ async function remplirVersions(hote, nom) {
   }
 }
 
-function ficheDocument(d) {
+function ficheDocument(d: DocumentResume): HTMLElement {
   const fiche = el('div', 'doc-fiche')
   fiche.dataset.nom = d.nom
   fiche.appendChild(el('div', 't', d.titre))
@@ -526,7 +562,7 @@ function ficheDocument(d) {
 
 // --------------------------------------------------------------- permissions
 
-function addPermission(evt) {
+function addPermission(evt: Evt<'permission'>) {
   finishText()
   finishThinking()
   currentSources = null
@@ -561,13 +597,14 @@ function addPermission(evt) {
       card.append(toggle, pre)
     }
   } else {
-    const detail = evt.toolName === 'Bash' ? String(evt.input?.command || '') : humanizeInput(evt.input).join('\n')
+    const detail = evt.toolName === 'Bash'
+      ? String((estObjet(evt.input) && evt.input.command) || '')
+      : humanizeInput(evt.input).join('\n')
     if (detail) card.appendChild(el('pre', null, detail))
   }
 
   const btns = el('div', 'btns')
-  const entree = { id: evt.id }
-  const repondre = (a) => {
+  const repondre = (a: ReponsePermission) => {
     if (!permsEnAttente.includes(entree)) return
     permsEnAttente.splice(permsEnAttente.indexOf(entree), 1)
     api.replyPermission(evt.id, a)
@@ -577,9 +614,12 @@ function addPermission(evt) {
     refreshActivePerm()
     input.focus()
   }
-  entree.allow = () => repondre({ behavior: 'allow' })
-  entree.deny = () => repondre({ behavior: 'deny', message: 'Refusé par Nicolas.' })
-  entree.card = card
+  const entree: PermEnAttente = {
+    id: evt.id,
+    card,
+    allow: () => repondre({ behavior: 'allow' }),
+    deny: () => repondre({ behavior: 'deny', message: 'Refusé par Nicolas.' }),
+  }
   permsEnAttente.push(entree)
 
   const oui = el('button', 'primary')
@@ -610,13 +650,13 @@ function refreshActivePerm() {
 
 // --------------------------------------------------------------------- état
 
-function setBusy(v) {
+function setBusy(v: boolean) {
   busy = v
   document.body.classList.toggle('busy', v)
   sendBtn.disabled = !v && !input.value.trim()
 }
 
-function setStatus(text, kind) {
+function setStatus(text: string, kind?: string) {
   statusLine.replaceChildren(el('span', `dot ${kind || ''}`), document.createTextNode(text))
 }
 
@@ -633,7 +673,7 @@ function statusBibliotheque() {
  * et il refait son plan avec. C'est le comportement de Claude Code, et c'est ce
  * qui permet de le réorienter en pleine recherche.
  */
-function submit(forced) {
+function submit(forced?: string) {
   const text = (forced ?? input.value).trim()
   if (!text) return
   pushUserMessage(text, busy)
@@ -681,10 +721,10 @@ sendBtn.addEventListener('click', () => {
   else if (busy) api.interrupt()
 })
 
-document.getElementById('btn-new').addEventListener('click', nouvelleConversation)
+$('btn-new').addEventListener('click', nouvelleConversation)
 
-document.getElementById('btn-settings').addEventListener('click', () => panneauReglages.classList.toggle('hidden'))
-document.getElementById('btn-biblio').addEventListener('click', async () => {
+$('btn-settings').addEventListener('click', () => panneauReglages.classList.toggle('hidden'))
+$('btn-biblio').addEventListener('click', async () => {
   const montrer = document.body.classList.contains('docs-cachee')
   docsVisible(montrer)
   if (montrer) {
@@ -692,9 +732,9 @@ document.getElementById('btn-biblio').addEventListener('click', async () => {
     renderDocuments()
   }
 })
-document.getElementById('btn-ouvrir-dossier').addEventListener('click', () => api.openBibliotheque())
-document.getElementById('btn-ouvrir-biblio').addEventListener('click', () => api.openBibliotheque())
-document.getElementById('btn-choisir').addEventListener('click', async () => {
+$('btn-ouvrir-dossier').addEventListener('click', () => api.openBibliotheque())
+$('btn-ouvrir-biblio').addEventListener('click', () => api.openBibliotheque())
+$('btn-choisir').addEventListener('click', async () => {
   const res = await api.choisirBibliotheque()
   bibliotheque = res.bibliotheque
   documents = res.documents
@@ -709,10 +749,10 @@ langueSelect.addEventListener('change', () => api.setConfig({ langue: langueSele
 autonomieSelect.addEventListener('change', () => api.setConfig({ autonomie: autonomieSelect.value }))
 
 document.addEventListener('click', (e) => {
-  const lien = e.target.closest('a[data-ext]')
+  const lien = e.target instanceof Element ? e.target.closest('a[data-ext]') : null
   if (!lien) return
   e.preventDefault()
-  api.openExternal(lien.getAttribute('href'))
+  api.openExternal(lien.getAttribute('href') || '')
 })
 
 // ------------------------------------------------------------- bibliothèque
@@ -736,7 +776,7 @@ function renderDocuments() {
  * traces. Le reste — ce que Nicolas a demandé, ce qui a été lu, ce qui a été
  * écrit — se retrouve exactement à sa place.
  */
-function restaurer(evenements) {
+function restaurer(evenements: EvenementEnregistre[] | undefined) {
   permsEnAttente.length = 0
   enFile = []
   toolEls = new Map()
@@ -750,7 +790,7 @@ function restaurer(evenements) {
     return
   }
 
-  let groupeSources = null
+  let groupeSources: HTMLElement | null = null
   for (const e of evenements) {
     if (e.k !== 'source') groupeSources = null
     switch (e.k) {
@@ -789,7 +829,7 @@ function restaurer(evenements) {
 
 // -------------------------------------------------------- barre latérale
 
-function barreVisible(v) {
+function barreVisible(v: boolean) {
   document.body.classList.toggle('barre-cachee', !v)
   api.setConfig({ barreVisible: v })
 }
@@ -813,7 +853,7 @@ function renderConversations() {
     const meta = el('div', 'm')
     meta.appendChild(el('span', null, dateCourte(c.maj_le)))
     if (c.documents) meta.appendChild(el('span', 'docs-n', `${c.documents} doc${c.documents > 1 ? 's' : ''}`))
-    const badge = ETATS[c.statut]
+    const badge = c.statut ? ETATS[c.statut] : undefined
     if (badge) meta.appendChild(el('span', `etat ${badge.cls}`, badge.texte))
     infos.append(titre, meta)
 
@@ -827,9 +867,9 @@ function renderConversations() {
       titre.focus()
       document.getSelection()?.selectAllChildren(titre)
     })
-    const finEdition = async (garder) => {
+    const finEdition = async (garder: boolean) => {
       if (!titre.isContentEditable) return
-      const valeur = titre.textContent.trim()
+      const valeur = (titre.textContent || '').trim()
       titre.contentEditable = 'false'
       if (garder && valeur && valeur !== c.titre) {
         conversations = await api.conv.rename(c.id, valeur)
@@ -867,24 +907,24 @@ function renderConversations() {
 }
 
 /** Ce qu'on veut voir d'un coup d'œil : ce qui tourne, et ce qui est resté en plan. */
-const ETATS = {
+const ETATS: Partial<Record<StatutFil, { texte: string; cls: string }>> = {
   en_cours: { texte: 'en cours', cls: 'vif' },
   en_attente: { texte: 'en attente', cls: 'calme' },
   interrompu: { texte: 'interrompue', cls: 'tiede' },
   incomplet: { texte: 'inachevée', cls: 'tiede' },
 }
 
-function dateCourte(iso) {
+function dateCourte(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(+d)) return ''
-  const jours = Math.floor((Date.now() - d) / 86400000)
+  const jours = Math.floor((Date.now() - +d) / 86400000)
   if (jours <= 0) return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
   if (jours === 1) return 'hier'
   if (jours < 7) return `il y a ${jours} j`
   return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
 }
 
-async function ouvrirConversation(id) {
+async function ouvrirConversation(id: string) {
   convCourante = await api.conv.open(id)
   input.focus()
 }
@@ -896,7 +936,7 @@ async function nouvelleConversation() {
   input.focus()
 }
 
-let minuteurRecherche = null
+let minuteurRecherche: ReturnType<typeof setTimeout> | undefined
 recherche.addEventListener('input', () => {
   clearTimeout(minuteurRecherche)
   minuteurRecherche = setTimeout(async () => {
@@ -912,8 +952,8 @@ recherche.addEventListener('keydown', (e) => {
   }
 })
 
-document.getElementById('btn-new-barre').addEventListener('click', nouvelleConversation)
-document.getElementById('btn-barre').addEventListener('click', () => {
+$('btn-new-barre').addEventListener('click', nouvelleConversation)
+$('btn-barre').addEventListener('click', () => {
   barreVisible(document.body.classList.contains('barre-cachee'))
 })
 
@@ -1016,8 +1056,8 @@ document.body.classList.toggle('docs-cachee', state.config.docsVisible === false
 appliquerLargeur(barre, state.config.largeurBarre)
 appliquerLargeur(docsBarre, state.config.largeurDocs)
 porteeDocs = state.config.porteeDocs || 'conversation'
-document.getElementById('portee-tous').classList.toggle('actif', porteeDocs === 'tous')
-document.getElementById('portee-conv').classList.toggle('actif', porteeDocs !== 'tous')
+$('portee-tous').classList.toggle('actif', porteeDocs === 'tous')
+$('portee-conv').classList.toggle('actif', porteeDocs !== 'tous')
 renderDocuments()
 renderConversations()
 statusBibliotheque()

@@ -4,20 +4,27 @@
 //
 // C'est ce qui sépare ce générateur d'un modèle qui « fait comme si » : une URL
 // non consultée ne peut littéralement pas atterrir dans un document.
-import { urlsCitables, parId } from '../doc/sources.mjs'
-import { normaliserUrl, urlsDuTexte } from '../doc/web.mjs'
-import { existe, nomFichier } from '../doc/bibliotheque.mjs'
+import { urlsCitables, parId } from '../doc/sources.ts'
+import { normaliserUrl, urlsDuTexte } from '../doc/web.ts'
+import { existe, nomFichier } from '../doc/bibliotheque.ts'
+import type { Source } from '../doc/sources.ts'
+import type { HookCallbackMatcher, HookEvent, SyncHookJSONOutput } from '@anthropic-ai/claude-agent-sdk'
 
 const PREFIXE = 'mcp__redacteur__'
 
+/** Les paramètres d'un appel d'outil, tels que le modèle les envoie : rien n'est garanti. */
+type Entree = Record<string, unknown>
+
 export class GardeRedaction {
+  /** Sources réellement lues pendant CETTE conversation. */
+  luesIci: Set<string>
+
   constructor() {
-    /** Sources réellement lues pendant CETTE conversation. */
     this.luesIci = new Set()
   }
 
   /** Mémorise les sources dès que l'assistant en consulte une. */
-  noteToolResult(toolName, brut) {
+  noteToolResult(toolName: string, brut: string): void {
     if (!brut || !toolName.startsWith(PREFIXE)) return
     const nom = toolName.slice(PREFIXE.length)
     if (nom !== 'consulter_source' && nom !== 'relire_source') return
@@ -27,7 +34,7 @@ export class GardeRedaction {
     } catch {}
   }
 
-  #verifierRedaction(i) {
+  #verifierRedaction(i: Entree): string | null {
     const ids = Array.isArray(i.sources) ? i.sources.filter(Boolean).map(String) : []
     const markdown = String(i.markdown || '')
 
@@ -39,7 +46,7 @@ export class GardeRedaction {
     }
 
     // 2. Une source qui n'a rien rendu ne se cite pas.
-    const vides = ids.map((id) => parId(id)).filter((s) => s && s.type !== 'pdf' && !s.caracteres)
+    const vides = ids.map((id) => parId(id)).filter((s): s is Source => !!s && s.type !== 'pdf' && !s.caracteres)
     if (vides.length) {
       return `Tu cites ${vides.map((s) => `${s.id} (${s.url})`).join(', ')}, mais cette page n'a rendu aucun texte : ` +
         'tu ne l\'as pas vraiment lue. Retire-la de tes sources, ou trouve la même information ailleurs.'
@@ -56,7 +63,8 @@ export class GardeRedaction {
     }
 
     // 4. Un document de recherche s'appuie sur une lecture faite ici, maintenant.
-    if (!ids.length && !i.sans_source && !existe(i.nom || nomFichier(i.titre || ''))) {
+    const cible = i.nom || nomFichier(i.titre || '')
+    if (!ids.length && !i.sans_source && !existe(cible)) {
       return this.luesIci.size
         ? `Tu as lu ${this.luesIci.size} source(s) dans cette conversation (${[...this.luesIci].join(', ')}) mais tu n'en cites aucune. ` +
           'Renseigne `sources` avec celles qui ont servi.'
@@ -74,7 +82,7 @@ export class GardeRedaction {
     // pour ce sujet-là. Sur une nouvelle version d'un document existant, en
     // revanche, une retouche de forme n'a aucune raison de rouvrir les sources —
     // exiger une relecture ferait de chaque correction une expédition.
-    const nouvelleVersion = existe(i.nom || nomFichier(i.titre || ''))
+    const nouvelleVersion = existe(cible)
     const jamaisIci = ids.filter((id) => !this.luesIci.has(id))
     if (ids.length && !nouvelleVersion && jamaisIci.length === ids.length) {
       return 'Toutes les sources citées viennent de conversations précédentes : rien n\'a été vérifié pour ce ' +
@@ -85,10 +93,10 @@ export class GardeRedaction {
     return null
   }
 
-  verifier(toolName, input) {
+  verifier(toolName: string, input: unknown): string | null {
     if (!toolName.startsWith(PREFIXE)) return null
     const nom = toolName.slice(PREFIXE.length)
-    const i = input || {}
+    const i = (input || {}) as Entree
 
     switch (nom) {
       case 'rediger_document':
@@ -105,8 +113,8 @@ export class GardeRedaction {
   }
 
   /** Configuration `hooks` passée à query(). */
-  hooks() {
-    const refuser = (raison) => ({
+  hooks(): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
+    const refuser = (raison: string): SyncHookJSONOutput => ({
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
         permissionDecision: 'deny',
@@ -118,7 +126,8 @@ export class GardeRedaction {
         {
           matcher: `${PREFIXE}.*`,
           hooks: [async (entree) => {
-            const raison = this.verifier(entree?.tool_name, entree?.tool_input)
+            if (entree?.hook_event_name !== 'PreToolUse') return { continue: true }
+            const raison = this.verifier(entree.tool_name, entree.tool_input)
             return raison ? refuser(raison) : { continue: true }
           }],
         },

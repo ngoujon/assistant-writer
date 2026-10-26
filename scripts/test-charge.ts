@@ -2,10 +2,11 @@
 //
 // C'est le test qui compte pour l'usage réel : est-ce qu'une recherche large
 // produit un document, ou est-ce qu'elle s'arrête en route sans rien laisser ?
-// Usage : node scripts/test-charge.mjs ["ma demande"] [minutes]
+// Usage : node scripts/test-charge.ts ["ma demande"] [minutes]
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import type { DocumentEcrit } from '../src/doc/bibliotheque.ts'
 
 const DEMANDE = process.argv[2]
   || "J'ai besoin d'une synthèse du vocabulaire et des notions à connaître sur les grands modèles de langage : "
@@ -16,13 +17,20 @@ const bac = fs.mkdtempSync(path.join(os.tmpdir(), 'redacteur-charge-'))
 process.env.REDACTEUR_DATA_DIR = path.join(bac, 'donnees')
 process.env.REDACTEUR_BIBLIOTHEQUE = path.join(bac, 'bibliotheque')
 
-const { AgentSession } = await import('../src/agent/session.mjs')
-const { listerDocuments, versionsDocument } = await import('../src/doc/bibliotheque.mjs')
-const { registre } = await import('../src/doc/sources.mjs')
+const { AgentSession } = await import('../src/agent/session.ts')
+const { listerDocuments, versionsDocument } = await import('../src/doc/bibliotheque.ts')
+const { registre } = await import('../src/doc/sources.ts')
 
 const t0 = Date.now()
 const min = () => `${((Date.now() - t0) / 60000).toFixed(1)} min`
-const vu = { fini: false, erreurs: [], notes: [], versions: [], titre: null, anglais: [] }
+const vu = {
+  fini: false,
+  erreurs: [] as string[],
+  notes: [] as string[],
+  versions: [] as DocumentEcrit[],
+  titre: null as string | null,
+  anglais: [] as string[],
+}
 let texte = ''
 
 const session = new AgentSession({
@@ -75,7 +83,7 @@ session.stop()
 
 const docs = listerDocuments()
 const motsAnglais = /\b(I'm|I have|sorry|currently|reading|sources so far|let me|I'll)\b/i
-if (motsAnglais.test(texte)) vu.anglais.push(texte.match(motsAnglais)[0])
+if (motsAnglais.test(texte)) vu.anglais.push(texte.match(motsAnglais)![0])
 
 console.log('\n================ BILAN ================')
 console.log('durée            :', min())

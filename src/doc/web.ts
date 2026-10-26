@@ -4,11 +4,26 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { P } from './paths.mjs'
+import { P } from './paths.ts'
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'
 
-const ENTITES = {
+/** Une page récupérée, prête à être inscrite au registre. */
+export interface Page {
+  url: string
+  url_finale: string
+  type: 'pdf' | 'json' | 'html' | 'texte'
+  titre: string
+  editeur: string | null
+  auteur: string | null
+  date_publication: string | null
+  texte: string
+  fichier: string | null
+  tronquee: boolean
+  taille: number
+}
+
+const ENTITES: Record<string, string> = {
   amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', laquo: '«', raquo: '»',
   eacute: 'é', egrave: 'è', ecirc: 'ê', agrave: 'à', ccedil: 'ç', ugrave: 'ù', ocirc: 'ô',
   icirc: 'î', iuml: 'ï', ucirc: 'û', acirc: 'â', euml: 'ë', rsquo: '’', lsquo: '‘',
@@ -16,21 +31,21 @@ const ENTITES = {
   times: '×', middot: '·', bull: '•', trade: '™', copy: '©', reg: '®', permil: '‰',
 }
 
-export function decoderEntites(s) {
+export function decoderEntites(s: unknown): string {
   return String(s)
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => codePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, d) => codePoint(parseInt(d, 10)))
-    .replace(/&([a-z][a-z0-9]*);/gi, (m, nom) => ENTITES[nom] ?? ENTITES[nom.toLowerCase()] ?? m)
+    .replace(/&#x([0-9a-f]+);/gi, (_, h: string) => codePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d: string) => codePoint(parseInt(d, 10)))
+    .replace(/&([a-z][a-z0-9]*);/gi, (m, nom: string) => ENTITES[nom] ?? ENTITES[nom.toLowerCase()] ?? m)
 }
 
-function codePoint(n) {
+function codePoint(n: number): string {
   try { return String.fromCodePoint(n) } catch { return '' }
 }
 
-const bloc = (nom) => new RegExp(`<${nom}\\b[^>]*>[\\s\\S]*?</${nom}>`, 'gi')
+const bloc = (nom: string): RegExp => new RegExp(`<${nom}\\b[^>]*>[\\s\\S]*?</${nom}>`, 'gi')
 
 /** Ce qui n'est jamais du contenu : on l'enlève avant tout le reste. */
-function degraisser(html) {
+function degraisser(html: string): string {
   let s = html
   for (const nom of ['script', 'style', 'noscript', 'svg', 'template', 'iframe', 'form', 'select', 'button']) {
     s = s.replace(bloc(nom), ' ')
@@ -40,7 +55,7 @@ function degraisser(html) {
 }
 
 /** Le corps de l'article, s'il est identifiable ; sinon toute la page. */
-function corps(html) {
+function corps(html: string): string {
   for (const re of [
     /<article\b[^>]*>([\s\S]*?)<\/article>/i,
     /<main\b[^>]*>([\s\S]*?)<\/main>/i,
@@ -57,14 +72,14 @@ function corps(html) {
  * HTML → texte structuré. On garde les titres, les listes et les tableaux sous
  * forme Markdown légère : le modèle doit pouvoir citer un chiffre avec sa ligne.
  */
-export function htmlVersTexte(html) {
+export function htmlVersTexte(html: string): string {
   let s = corps(degraisser(html))
   for (const nom of ['nav', 'header', 'footer', 'aside']) s = s.replace(bloc(nom), ' ')
 
   s = s
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(p|div|section|tr|h[1-6]|blockquote|figcaption)>/gi, '\n')
-    .replace(/<h([1-6])\b[^>]*>/gi, (_, n) => `\n\n${'#'.repeat(Math.min(Number(n) + 1, 6))} `)
+    .replace(/<h([1-6])\b[^>]*>/gi, (_, n: string) => `\n\n${'#'.repeat(Math.min(Number(n) + 1, 6))} `)
     .replace(/<li\b[^>]*>/gi, '\n- ')
     .replace(/<t[dh]\b[^>]*>/gi, ' | ')
     .replace(/<(p|div|section|blockquote|table|figure)\b[^>]*>/gi, '\n')
@@ -78,7 +93,7 @@ export function htmlVersTexte(html) {
     .trim()
 }
 
-function meta(html, ...cles) {
+function meta(html: string, ...cles: string[]): string | null {
   for (const cle of cles) {
     const re = new RegExp(`<meta[^>]+(?:property|name|itemprop)=["']${cle}["'][^>]*>`, 'i')
     const balise = html.match(re)?.[0]
@@ -88,7 +103,7 @@ function meta(html, ...cles) {
   return null
 }
 
-function hote(url) {
+function hote(url: string): string | null {
   try { return new URL(url).hostname.replace(/^www\./, '') } catch { return null }
 }
 
@@ -96,7 +111,7 @@ function hote(url) {
  * Normalise une URL pour comparer « ce qui est cité » à « ce qui a été lu » :
  * le fragment, le slash final et les paramètres de suivi ne changent pas la page.
  */
-export function normaliserUrl(url) {
+export function normaliserUrl(url: unknown): string {
   try {
     const u = new URL(String(url).trim())
     u.hash = ''
@@ -113,11 +128,11 @@ export function normaliserUrl(url) {
 }
 
 /** Les URL citées dans un texte, dépouillées de la ponctuation qui les suit. */
-export function urlsDuTexte(texte) {
-  const trouvees = new Set()
+export function urlsDuTexte(texte: unknown): string[] {
+  const trouvees = new Set<string>()
   for (const brut of String(texte || '').match(/https?:\/\/[^\s<>"'`\]}]+/g) || []) {
     let u = brut
-    let avant
+    let avant: string
     // La ponctuation qui suit une URL n'en fait pas partie ; une parenthèse
     // fermante, si — mais seulement quand une ouvrante la précède dans l'adresse.
     do {
@@ -133,14 +148,16 @@ export function urlsDuTexte(texte) {
 /**
  * Va chercher la page. Un PDF n'est pas mis à plat : il est enregistré sur le
  * disque et le chemin est rendu — l'outil `Read` de Claude Code sait le lire.
- * @returns {Promise<{url:string,url_finale:string,type:string,titre:string,editeur:string,auteur:?string,date_publication:?string,texte:string,fichier:?string,tronquee:boolean,taille:number}>}
  */
-export async function recupererPage(url, { timeout = 30000, maxCaracteres = 60000 } = {}) {
+export async function recupererPage(
+  url: string,
+  { timeout = 30000, maxCaracteres = 60000 }: { timeout?: number, maxCaracteres?: number } = {},
+): Promise<Page> {
   if (!/^https?:\/\//i.test(url)) throw new Error(`« ${url} » n'est pas une adresse http(s).`)
 
   const ctrl = new AbortController()
   const minuteur = setTimeout(() => ctrl.abort(), timeout)
-  let reponse
+  let reponse: Response
   try {
     reponse = await fetch(url, {
       redirect: 'follow',
@@ -153,9 +170,10 @@ export async function recupererPage(url, { timeout = 30000, maxCaracteres = 6000
     })
   } catch (err) {
     clearTimeout(minuteur)
-    throw new Error(err?.name === 'AbortError'
+    const e = err as Error | undefined
+    throw new Error(e?.name === 'AbortError'
       ? `Pas de réponse de ${hote(url) || url} après ${Math.round(timeout / 1000)} s.`
-      : `Impossible de joindre ${hote(url) || url} : ${err?.message || err}`)
+      : `Impossible de joindre ${hote(url) || url} : ${e?.message || err}`)
   }
   clearTimeout(minuteur)
 

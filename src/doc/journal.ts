@@ -6,17 +6,17 @@
 // déroulé technique.
 import fs from 'node:fs'
 import path from 'node:path'
-import { dataRoot } from './paths.mjs'
+import { dataRoot } from './paths.ts'
 
 const MAX_OCTETS = 120_000
 
-let fichier = null
-function chemin() {
+let fichier: string | null = null
+function chemin(): string {
   if (!fichier) fichier = path.join(dataRoot(), 'journal.log')
   return fichier
 }
 
-export function tracer(...morceaux) {
+export function tracer(...morceaux: unknown[]): void {
   const ligne = `${new Date().toISOString()} ${morceaux
     .map((m) => (typeof m === 'string' ? m : safe(m)))
     .join(' ')}\n`
@@ -32,8 +32,8 @@ export function tracer(...morceaux) {
   try { fs.appendFileSync(chemin(), ligne) } catch {}
 }
 
-export function cheminJournal() { return chemin() }
+export function cheminJournal(): string { return chemin() }
 
-function safe(v) {
+function safe(v: unknown): string {
   try { return JSON.stringify(v).slice(0, 600) } catch { return String(v) }
 }

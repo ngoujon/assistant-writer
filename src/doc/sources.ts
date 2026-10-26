@@ -1,15 +1,60 @@
 // Le registre des sources : la mémoire de ce qui a été RÉELLEMENT lu.
 //
 // C'est la pièce qui rend les documents fiables. Une URL ne devient citable qu'en
-// passant par ici — donc en ayant répondu. Les gardes (voir agent/gardes.mjs)
+// passant par ici — donc en ayant répondu. Les gardes (voir agent/gardes.ts)
 // refusent tout document qui cite une adresse absente de ce registre : l'assistant
 // ne peut pas inventer une référence, même s'il en a envie.
 import fs from 'node:fs'
 import path from 'node:path'
-import { P } from './paths.mjs'
-import { recupererPage, normaliserUrl } from './web.mjs'
+import { P } from './paths.ts'
+import { recupererPage, normaliserUrl } from './web.ts'
+import type { Page } from './web.ts'
 
-function lireRegistre() {
+/** Une ligne du registre, telle qu'elle est enregistrée sur le disque. */
+export interface EntreeRegistre {
+  id: string
+  /** L'URL normalisée : la clé de comparaison. */
+  cle: string
+  url: string
+  url_finale?: string
+  type: Page['type']
+  titre: string
+  editeur: string | null
+  auteur?: string | null
+  date_publication?: string | null
+  consultee_le: string
+  taille?: number
+  tronquee?: boolean
+  fichier?: string | null
+}
+
+interface Registre {
+  sequence: number
+  sources: EntreeRegistre[]
+}
+
+/** Une source telle qu'on la montre au modèle et à l'interface. */
+export interface Source {
+  id: string
+  titre: string
+  editeur: string | null
+  auteur?: string
+  url: string
+  date_publication?: string
+  consultee_le: string
+  type: Page['type']
+  fichier?: string
+  caracteres?: number
+}
+
+export interface Consultation {
+  source: Source
+  texte: string
+  deja_lue: boolean
+  tronquee: boolean
+}
+
+function lireRegistre(): Registre {
   try {
     const data = JSON.parse(fs.readFileSync(P.registre(), 'utf8'))
     return Array.isArray(data?.sources) ? data : { sequence: 0, sources: [] }
@@ -18,12 +63,12 @@ function lireRegistre() {
   }
 }
 
-function ecrireRegistre(reg) {
+function ecrireRegistre(reg: Registre): void {
   fs.mkdirSync(path.dirname(P.registre()), { recursive: true })
   fs.writeFileSync(P.registre(), JSON.stringify(reg, null, 2))
 }
 
-const publique = (s) => ({
+const publique = (s: EntreeRegistre): Source => ({
   id: s.id,
   titre: s.titre,
   editeur: s.editeur,
@@ -36,24 +81,24 @@ const publique = (s) => ({
   caracteres: s.taille,
 })
 
-export function registre() {
+export function registre(): Source[] {
   return lireRegistre().sources.map(publique)
 }
 
-export function parId(id) {
+export function parId(id: unknown): Source | null {
   const s = lireRegistre().sources.find((x) => x.id === String(id).trim())
   return s ? publique(s) : null
 }
 
-export function parUrl(url) {
+export function parUrl(url: string): Source | null {
   const cle = normaliserUrl(url)
   const s = lireRegistre().sources.find((x) => x.cle === cle || normaliserUrl(x.url_finale || x.url) === cle)
   return s ? publique(s) : null
 }
 
 /** Toutes les adresses que l'assistant a le droit de citer. */
-export function urlsCitables() {
-  const set = new Set()
+export function urlsCitables(): Set<string> {
+  const set = new Set<string>()
   for (const s of lireRegistre().sources) {
     set.add(s.cle)
     if (s.url_finale) set.add(normaliserUrl(s.url_finale))
@@ -63,7 +108,7 @@ export function urlsCitables() {
 }
 
 /** Le texte intégral d'une source déjà consultée, tel qu'il a été enregistré. */
-export function texteSource(id) {
+export function texteSource(id: unknown): string | null {
   const s = parId(id)
   if (!s) return null
   try { return fs.readFileSync(P.source(s.id), 'utf8') } catch { return null }
@@ -72,9 +117,11 @@ export function texteSource(id) {
 /**
  * Va lire une page et l'inscrit au registre. Une page déjà lue n'est pas
  * re-téléchargée dans la foulée : on rend le texte conservé, en disant depuis quand.
- * @returns {Promise<{source: object, texte: string, deja_lue: boolean, tronquee: boolean}>}
  */
-export async function consulter(url, { relire = false, maxCaracteres = 60000 } = {}) {
+export async function consulter(
+  url: string,
+  { relire = false, maxCaracteres = 60000 }: { relire?: boolean, maxCaracteres?: number } = {},
+): Promise<Consultation> {
   const cle = normaliserUrl(url)
   const reg = lireRegistre()
   const connue = reg.sources.find((s) => s.cle === cle)
@@ -90,7 +137,7 @@ export async function consulter(url, { relire = false, maxCaracteres = 60000 } =
 
   const page = await recupererPage(url, { maxCaracteres })
   const id = connue?.id || `s${++reg.sequence}`
-  const entree = {
+  const entree: EntreeRegistre = {
     id,
     cle,
     url: page.url,
@@ -117,7 +164,7 @@ export async function consulter(url, { relire = false, maxCaracteres = 60000 } =
 }
 
 /** Une ligne de bibliographie, en français, avec la date de consultation. */
-export function ligneBibliographie(s, index) {
+export function ligneBibliographie(s: Source, index: number): string {
   const bouts = [`**${s.titre}**`]
   if (s.auteur) bouts.push(s.auteur)
   if (s.editeur && s.editeur !== s.titre) bouts.push(s.editeur)
@@ -127,7 +174,7 @@ export function ligneBibliographie(s, index) {
   return `${tete}\n   <${s.url}>\n   *consultée le ${jolieDate(s.consultee_le) || s.consultee_le}*`
 }
 
-export function jolieDate(v) {
+export function jolieDate(v: string | number | Date | null | undefined): string | null {
   if (!v) return null
   const d = new Date(v)
   if (Number.isNaN(+d)) return null
@@ -135,6 +182,6 @@ export function jolieDate(v) {
 }
 
 /** Uniquement pour les tests : repart d'un registre vierge. */
-export function viderRegistre() {
+export function viderRegistre(): void {
   ecrireRegistre({ sequence: 0, sources: [] })
 }

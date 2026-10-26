@@ -6,23 +6,74 @@
 // retour sur un ancien fil retrouve exactement ce qu'on y avait vu.
 import fs from 'node:fs'
 import crypto from 'node:crypto'
-import { P, ensureDonnees } from './paths.mjs'
+import { P, ensureDonnees } from './paths.ts'
 
 /** Au-delà, un fil très long est tronqué par le début : seul l'affichage y perd. */
 const MAX_EVENEMENTS = 400
 
+/** Ce qui a défilé dans la fenêtre, en assez peu de mots pour être rejoué. */
+export type EvenementFil =
+  | { k: 'user', texte: string }
+  | { k: 'texte', texte: string }
+  | { k: 'outil', nom: string, arg: string }
+  | { k: 'source', id: string, titre: string, url: string }
+  | {
+    k: 'document', nom: string, titre: string, mots?: number, sources?: number,
+    version?: number, remplace?: boolean,
+  }
+  | { k: 'note', texte: string, kind?: string }
+
+/** Un événement tel qu'il est enregistré : daté. */
+export type EvenementDate = EvenementFil & { t: string }
+
+/** Ce qu'est devenu le dernier tour d'un fil. */
+export type StatutFil = 'termine' | 'interrompu' | 'incomplet'
+
+/** Un fil tel qu'il vit sur le disque. */
+export interface Conversation {
+  id: string
+  titre: string | null
+  titreManuel?: boolean
+  cree_le: string
+  maj_le: string
+  sessionId: string | null
+  documents: string[]
+  evenements: EvenementDate[]
+  statut?: StatutFil | null
+}
+
+/** Une ligne de la liste des fils. */
+export interface ResumeConversation {
+  id: string
+  titre: string
+  sansTitre: boolean
+  cree_le: string
+  maj_le: string
+  /** Le nombre de documents écrits — pas leurs noms (voir `documentsDe`). */
+  documents: number
+  messages: number
+  statut: StatutFil | null
+  vide: boolean
+}
+
+/** Un fil complet, prêt à être rejoué. */
+export interface FilConversation extends ResumeConversation {
+  sessionId: string | null
+  evenements: EvenementDate[]
+}
+
 const maintenant = () => new Date().toISOString()
 
-export function nouvelId() {
+export function nouvelId(): string {
   return `c${Date.now().toString(36)}${crypto.randomBytes(3).toString('hex')}`
 }
 
-function chemin(id) {
+function chemin(id: unknown): string {
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(String(id || ''))) throw new Error('Identifiant de conversation invalide.')
-  return P.conversation(id)
+  return P.conversation(String(id))
 }
 
-export function lire(id) {
+export function lire(id: unknown): Conversation | null {
   try {
     const c = JSON.parse(fs.readFileSync(chemin(id), 'utf8'))
     return c && c.id ? c : null
@@ -31,13 +82,13 @@ export function lire(id) {
   }
 }
 
-function ecrire(conv) {
+function ecrire(conv: Conversation): Conversation {
   ensureDonnees()
   fs.writeFileSync(chemin(conv.id), JSON.stringify(conv))
   return conv
 }
 
-export function creer({ titre } = {}) {
+export function creer({ titre }: { titre?: string | null } = {}): Conversation {
   return ecrire({
     id: nouvelId(),
     titre: titre || null,
@@ -50,7 +101,7 @@ export function creer({ titre } = {}) {
 }
 
 /** Les métadonnées seules : de quoi peindre la liste sans charger les fils. */
-const resume = (c) => ({
+const resume = (c: Conversation): ResumeConversation => ({
   id: c.id,
   titre: c.titre || 'Nouvelle conversation',
   sansTitre: !c.titre,
@@ -64,7 +115,7 @@ const resume = (c) => ({
 })
 
 /** Le texte où l'on cherche : titre, messages, titres de documents et de sources. */
-function corpusDeRecherche(c) {
+function corpusDeRecherche(c: Conversation): string {
   const bouts = [c.titre || '']
   for (const e of c.evenements || []) {
     if (e.k === 'user' || e.k === 'texte') bouts.push(e.texte || '')
@@ -75,12 +126,12 @@ function corpusDeRecherche(c) {
   return bouts.join('\n').toLowerCase()
 }
 
-export function lister(recherche) {
+export function lister(recherche?: string | null): ResumeConversation[] {
   ensureDonnees()
-  let noms = []
+  let noms: string[] = []
   try { noms = fs.readdirSync(P.conversations()) } catch { return [] }
   const q = String(recherche || '').trim().toLowerCase()
-  const out = []
+  const out: ResumeConversation[] = []
   for (const nom of noms) {
     if (!nom.endsWith('.json')) continue
     const c = lire(nom.slice(0, -5))
@@ -94,7 +145,7 @@ export function lister(recherche) {
   return out.sort((a, b) => b.maj_le.localeCompare(a.maj_le) || b.id.localeCompare(a.id))
 }
 
-export function supprimer(id) {
+export function supprimer(id: unknown): true {
   try { fs.rmSync(chemin(id), { force: true }) } catch {}
   return true
 }
@@ -103,7 +154,11 @@ export function supprimer(id) {
  * Renomme un fil. Un titre posé à la main est définitif : ni le modèle ni le
  * titre d'un document ne le recouvrent ensuite.
  */
-export function renommer(id, titre, { manuel = true } = {}) {
+export function renommer(
+  id: unknown,
+  titre: string | null | undefined,
+  { manuel = true }: { manuel?: boolean } = {},
+): ResumeConversation | null {
   const c = lire(id)
   if (!c) return null
   if (!manuel && c.titreManuel) return resume(c)
@@ -114,14 +169,14 @@ export function renommer(id, titre, { manuel = true } = {}) {
 }
 
 /** Où en est le dernier tour de ce fil : c'est ce qui distingue « fini » de « en plan ». */
-export function marquerStatut(id, statut) {
+export function marquerStatut(id: unknown, statut: StatutFil): ResumeConversation | null {
   const c = lire(id)
   if (!c || c.statut === statut) return null
   c.statut = statut
   return resume(ecrire(c))
 }
 
-export function memoriserSession(id, sessionId) {
+export function memoriserSession(id: unknown, sessionId: string): void {
   const c = lire(id)
   if (!c || c.sessionId === sessionId) return
   c.sessionId = sessionId
@@ -133,7 +188,7 @@ export function memoriserSession(id, sessionId) {
  * demande de Nicolas, puis le titre du document dès qu'il en sort un — c'est ce
  * qu'on cherche des semaines plus tard, pas « Nouvelle conversation ».
  */
-export function ajouter(id, evenement) {
+export function ajouter(id: unknown, evenement: EvenementFil): ResumeConversation | null {
   const c = lire(id)
   if (!c) return null
   c.evenements.push({ ...evenement, t: maintenant() })
@@ -148,7 +203,7 @@ export function ajouter(id, evenement) {
   return resume(c)
 }
 
-export function titreDepuisTexte(texte) {
+export function titreDepuisTexte(texte: unknown): string | null {
   const t = String(texte || '').replace(/\s+/g, ' ').trim()
   if (!t) return null
   if (t.length <= 60) return t
@@ -163,13 +218,13 @@ export function titreDepuisTexte(texte) {
  * À ne pas confondre avec le `documents` du résumé, qui en est le **nombre** :
  * ce sont deux réponses à deux questions différentes, et les mélanger casse.
  */
-export function documentsDe(id) {
+export function documentsDe(id: unknown): string[] {
   const c = lire(id)
   return Array.isArray(c?.documents) ? [...c.documents] : []
 }
 
 /** Le fil complet, prêt à être rejoué par l'interface. */
-export function fil(id) {
+export function fil(id: unknown): FilConversation | null {
   const c = lire(id)
   return c ? { ...resume(c), sessionId: c.sessionId, evenements: c.evenements } : null
 }

@@ -4,14 +4,20 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import type { DemandeValidation, SignalOutil } from '../src/agent/outils.ts'
 
 const bac = fs.mkdtempSync(path.join(os.tmpdir(), 'redacteur-outils-'))
 process.env.REDACTEUR_DATA_DIR = path.join(bac, 'donnees')
 process.env.REDACTEUR_BIBLIOTHEQUE = path.join(bac, 'bibliotheque')
 
-const { P } = await import('../src/doc/paths.mjs')
-const { serveurRedacteur } = await import('../src/agent/outils.mjs')
-const { listerDocuments } = await import('../src/doc/bibliotheque.mjs')
+const { P } = await import('../src/doc/paths.ts')
+const { serveurRedacteur } = await import('../src/agent/outils.ts')
+const { listerDocuments } = await import('../src/doc/bibliotheque.ts')
+
+/** Ce que le SDK MCP garde de chaque outil — privé, mais c'est ce qu'on veut appeler. */
+type OutilsEnregistres = Record<string, {
+  handler: (args: unknown, extra: unknown) => Promise<{ content?: Array<{ text?: string }> }>
+}>
 
 fs.mkdirSync(path.dirname(P.registre()), { recursive: true })
 fs.writeFileSync(P.registre(), JSON.stringify({
@@ -23,16 +29,17 @@ fs.writeFileSync(P.registre(), JSON.stringify({
 }, null, 2))
 
 /** Construit un serveur dont on pilote la réponse aux cartes de validation. */
-function serveur(reponse) {
-  const demandes = []
-  const signaux = []
+function serveur(reponse: boolean) {
+  const demandes: DemandeValidation[] = []
+  const signaux: SignalOutil[] = []
   const srv = serveurRedacteur({
     confirmer: async (d) => { demandes.push(d); return reponse },
     signaler: (e) => signaux.push(e),
     modele: () => 'claude-opus-5',
   })
-  const outils = srv.instance._registeredTools
-  const appeler = async (nom, args) => {
+  const outils = (srv.instance as unknown as { _registeredTools: OutilsEnregistres })._registeredTools
+  // Les réponses des outils sont du JSON libre : le test les lit champ par champ.
+  const appeler = async (nom: string, args: Record<string, unknown>): Promise<any> => {
     const res = await outils[nom].handler(args, {})
     const texte = res.content?.[0]?.text ?? ''
     try { return JSON.parse(texte) } catch { return texte }
@@ -75,7 +82,7 @@ const DOC = {
   const { appeler } = serveur(true)
   const nom = listerDocuments()[0].nom
   const hist = await appeler('versions_document', { nom })
-  assert.deepEqual(hist.versions.map((v) => v.numero), [2, 1])
+  assert.deepEqual(hist.versions.map((v: { numero: number }) => v.numero), [2, 1])
 
   const v1 = await appeler('lire_version', { nom, numero: 1 })
   assert.ok(v1.markdown.includes('Croissance de 1,4 %'))

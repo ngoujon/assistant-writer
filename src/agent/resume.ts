@@ -1,13 +1,20 @@
 // Traduit une demande d'autorisation en français lisible : on doit comprendre ce
 // qu'on valide sans lire du JSON.
 //
-// Les outils de rédaction, eux, composent leur propre carte (voir outils.mjs) :
+// Les outils de rédaction, eux, composent leur propre carte (voir outils.ts) :
 // ils connaissent le document exact et son volume, ce qu'une lecture des
 // paramètres ne donnerait pas.
 
-const nomDe = (chemin) => String(chemin).split('/').pop()
+/** Ce que montre la carte de validation : un titre, quelques lignes, un drapeau rouge. */
+export interface ResumePermission {
+  title: string
+  lines: string[]
+  danger?: boolean
+}
 
-export function resumerPermission(toolName, input) {
+const nomDe = (chemin: unknown): string | undefined => String(chemin).split('/').pop()
+
+export function resumerPermission(toolName: string, input: Record<string, unknown> | null | undefined): ResumePermission | null {
   const i = input || {}
   switch (toolName) {
     case 'Bash': {

@@ -1,6 +1,6 @@
 // Mise à plat d'une page : ce que le modèle lira à la place du HTML.
 import assert from 'node:assert/strict'
-import { htmlVersTexte, normaliserUrl, urlsDuTexte, decoderEntites } from '../src/doc/web.mjs'
+import { htmlVersTexte, normaliserUrl, urlsDuTexte, decoderEntites } from '../src/doc/web.ts'
 
 const PAGE = `<!doctype html><html><head>
   <title>PIB de Londres &amp; emploi</title>

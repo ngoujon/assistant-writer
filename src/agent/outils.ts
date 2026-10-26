@@ -6,25 +6,60 @@
 // bibliographie du document est composée à partir de ce registre, jamais de mémoire.
 import { z } from 'zod'
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
-import { consulter, registre, parId, texteSource, jolieDate } from '../doc/sources.mjs'
+import { consulter, registre, parId, texteSource, jolieDate } from '../doc/sources.ts'
 import {
   ecrireDocument, listerDocuments, lireDocument, supprimerDocument, existe, compterMots, nomFichier,
   versionsDocument, lireVersion, restaurerVersion,
-} from '../doc/bibliotheque.mjs'
-import { P } from '../doc/paths.mjs'
+} from '../doc/bibliotheque.ts'
+import { P } from '../doc/paths.ts'
+import type { Source } from '../doc/sources.ts'
+import type { DocumentEcrit } from '../doc/bibliotheque.ts'
 
-const texte = (data) => ({ content: [{ type: 'text', text: typeof data === 'string' ? data : JSON.stringify(data, null, 2) }] })
-const erreur = (m) => ({ content: [{ type: 'text', text: `ERREUR : ${m}` }], isError: true })
+/** Une validation demandée par un outil, qui sait exactement ce qui est en jeu. */
+export interface DemandeValidation {
+  outil: string
+  entree: Record<string, unknown>
+  titre: string
+  lignes: string[]
+  indice?: string
+  danger?: boolean
+  refus?: string
+}
+
+/** Ce que les outils signalent à la fenêtre au fil de leur travail. */
+export type SignalOutil =
+  | { k: 'source', source: Source, deja_lue: boolean }
+  | { k: 'document', document: DocumentEcrit }
+
+export interface ContexteOutils {
+  confirmer?: (demande: DemandeValidation) => Promise<boolean>
+  signaler?: (evt: SignalOutil) => void
+  ouvrir?: (chemin: string) => unknown
+  titrer?: (titre: string) => void
+  corbeille?: (chemin: string) => Promise<boolean>
+  modele?: () => string | null | undefined
+}
+
+interface ResultatOutil {
+  content: { type: 'text', text: string }[]
+  isError?: boolean
+  [cle: string]: unknown
+}
+
+const texte = (data: unknown): ResultatOutil => ({
+  content: [{ type: 'text', text: typeof data === 'string' ? data : JSON.stringify(data, null, 2) }],
+})
+const erreur = (m: string): ResultatOutil => ({ content: [{ type: 'text', text: `ERREUR : ${m}` }], isError: true })
 
 class Refus extends Error {}
 
 /** Enveloppe commune : une panne réseau revient au modèle en clair, jamais en exception. */
-const sur = (fn) => async (args, extra) => {
+const sur = <A>(fn: (args: A, extra: unknown) => Promise<unknown>) => async (args: A, extra: unknown): Promise<ResultatOutil> => {
   try {
     return texte(await fn(args, extra))
   } catch (err) {
     if (err instanceof Refus) return texte({ execute: false, refuse: true, message: err.message })
-    return erreur(err?.message || String(err))
+    return erreur((err as Error | undefined)?.message || String(err))
   }
 }
 
@@ -32,7 +67,7 @@ const BANNIERE_SANS_SOURCE =
   '> ⚠️ **Document rédigé sans source consultée.** Son contenu vient des connaissances générales du modèle, ' +
   'pas de documents vérifiés : les chiffres et les dates sont à recouper avant tout usage sérieux.'
 
-export function serveurRedacteur(contexte = {}) {
+export function serveurRedacteur(contexte: ContexteOutils = {}) {
   const confirmer = contexte.confirmer || (async () => true)
   const signaler = contexte.signaler || (() => {})
   const ouvrir = contexte.ouvrir || (() => false)
@@ -42,7 +77,7 @@ export function serveurRedacteur(contexte = {}) {
   const corbeille = contexte.corbeille || (async () => false)
   const modele = contexte.modele || (() => null)
 
-  async function valider(demande) {
+  async function valider(demande: DemandeValidation): Promise<void> {
     const ok = await confirmer(demande)
     if (!ok) throw new Refus(demande.refus || "Refusé par Nicolas — rien n'a été fait.")
   }
@@ -113,7 +148,7 @@ export function serveurRedacteur(contexte = {}) {
         const contenu = texteSource(id) || ''
         if (!contient) return { source, texte: contenu }
         const lignes = contenu.split('\n')
-        const gardees = []
+        const gardees: string[] = []
         lignes.forEach((l, i) => {
           if (l.toLowerCase().includes(contient.toLowerCase())) {
             gardees.push(lignes.slice(Math.max(0, i - 2), i + 3).join('\n'))

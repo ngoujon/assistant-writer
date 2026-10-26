@@ -1,17 +1,19 @@
 // Prévisualisation de l'interface, sans agent : rejoue une conversation type,
 // vérifie les raccourcis clavier, puis écrit une capture PNG. Usage :
-//   npx electron scripts/apercu.mjs [sortie.png]
+//   npm run apercu -- [sortie.png]
+// Electron lance la version compilée : dist/scripts/apercu.js.
 import { app, BrowserWindow, nativeTheme } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const ici = path.dirname(fileURLToPath(import.meta.url))
+const root = path.resolve(ici, '..', '..')
 const out = process.argv[2] || path.join(root, 'apercu.png')
 
-const src = (id, titre, url) => ({ k: 'source', source: { id, titre, url, editeur: 'ONS', consultee_le: '2026-08-29T09:00:00Z', type: 'html' }, deja_lue: false })
+const src = (id: string, titre: string, url: string) => ({ k: 'source', source: { id, titre, url, editeur: 'ONS', consultee_le: '2026-08-29T09:00:00Z', type: 'html' }, deja_lue: false })
 
-const SCENARIO = [
+const SCENARIO: Array<{ evt?: Record<string, unknown>, user?: string }> = [
   { evt: { k: 'ready', sessionId: 'x', model: 'claude-opus-5', outils: 'connected' } },
   { user: 'Fais-moi un rapport complet sur la situation économique de Londres' },
   { evt: { k: 'tool-use', id: 't0', name: 'WebSearch', input: { query: 'London economy GDP 2026 ONS' } } },
@@ -45,27 +47,28 @@ setTimeout(() => {
 }, 90000).unref?.()
 
 app.whenReady().then(async () => {
-  if (process.env.THEME) nativeTheme.themeSource = process.env.THEME
+  const theme = process.env.THEME
+  if (theme === 'dark' || theme === 'light' || theme === 'system') nativeTheme.themeSource = theme
   const win = new BrowserWindow({
     width: 840, height: 840, show: false,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 14, y: 18 },
     backgroundColor: process.env.THEME === 'dark' ? '#16181e' : '#f8fafd',
-    webPreferences: { preload: path.join(root, 'scripts', 'apercu-preload.cjs'), contextIsolation: true },
+    webPreferences: { preload: path.join(ici, 'apercu-preload.cjs'), contextIsolation: true },
   })
 
-  const erreurs = []
+  const erreurs: string[] = []
   win.webContents.on('console-message', (d) => {
-    if (d.level === 'error' || d.level === 3) erreurs.push(d.message)
+    if (d.level === 'error') erreurs.push(d.message)
   })
   win.webContents.on('render-process-gone', (_e, d) => erreurs.push(`renderer perdu : ${d.reason}`))
   // Une erreur dans l'interface doit se voir tout de suite, pas à la fin.
   win.webContents.on('console-message', (d) => {
-    if (d.level === 'error' || d.level === 3) console.log('CONSOLE:', String(d.message).slice(0, 300))
+    if (d.level === 'error') console.log('CONSOLE:', String(d.message).slice(0, 300))
   })
-  await win.loadFile(path.join(root, 'src', 'renderer', 'index.html'))
+  await win.loadFile(path.join(ici, '..', 'src', 'renderer', 'index.html'))
 
-  const taper = (texte) => win.webContents.executeJavaScript(
+  const taper = (texte: string) => win.webContents.executeJavaScript(
     `(() => {
        const box = document.getElementById('input')
        box.value = ${JSON.stringify(texte)}
@@ -73,7 +76,7 @@ app.whenReady().then(async () => {
        document.getElementById('btn-send').click()
      })()`,
   )
-  const tirer = (evt) => win.webContents.executeJavaScript(`window.redacteur._fire(${JSON.stringify(evt)})`)
+  const tirer = (evt: unknown) => win.webContents.executeJavaScript(`window.redacteur._fire(${JSON.stringify(evt)})`)
 
   for (const etape of SCENARIO) {
     if (etape.user) await taper(etape.user)
@@ -269,6 +272,6 @@ app.whenReady().then(async () => {
 })
 
 process.on('unhandledRejection', (err) => {
-  console.log('APERÇU ÉCHEC — le scénario a levé :', String(err?.message || err).slice(0, 300))
+  console.log('APERÇU ÉCHEC — le scénario a levé :', String((err as Error)?.message || err).slice(0, 300))
   app.exit(1)
 })

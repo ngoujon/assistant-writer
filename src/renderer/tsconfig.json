@@ -1,0 +1,11 @@
+{
+  // L'interface tourne dans le navigateur d'Electron : DOM, pas de Node.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "types": [],
+    "rootDir": ".",
+    "outDir": "../../dist/src/renderer"
+  },
+  "include": ["*.ts"]
+}
